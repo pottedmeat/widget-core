@@ -224,6 +224,7 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 
 	private _metaMap = new WeakMap<any, any>();
 	private _nodeMap = new Map<any, any>();
+	private _deferredProperties = new Map<string, any[]>();
 
 	/**
 	 * @constructor
@@ -273,6 +274,12 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 		return cached;
 	}
 
+	@beforeRender()
+	protected clearDeferredProperties(renderFunction: any, properties: any, children: DNode[]): any {
+		this._deferredProperties.clear();
+		return renderFunction;
+	}
+
 	/**
 	 * A render decorator that registers vnode callbacks for 'afterCreate' and
 	 * 'afterUpdate' that will in turn call lifecycle methods onElementCreated and onElementUpdated.
@@ -303,12 +310,21 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 		return node;
 	}
 
+	protected applyDeferredProperties(element: HTMLElement, properties: VNodeProperties) {
+		if (this._deferredProperties.has(<string> properties.key)) {
+			(this._deferredProperties.get(<string> properties.key) || []).forEach((style: any) => {
+				element.style[style.propertyName] = style.callback.apply(this);
+			});
+		}
+	}
+
 	/**
 	 * vnode afterCreate callback that calls the onElementCreated lifecycle method.
 	 */
 	private afterCreateCallback(element: Element, projectionOptions: ProjectionOptions, vnodeSelector: string,
 		properties: VNodeProperties, children: VNode[]): void {
 		this._setNode(element, projectionOptions, vnodeSelector, properties, children);
+		this.applyDeferredProperties(<HTMLElement> element, properties);
 		this.onElementCreated(element, String(properties.key));
 	}
 
@@ -318,6 +334,7 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 	private afterUpdateCallback(element: Element, projectionOptions: ProjectionOptions, vnodeSelector: string,
 		properties: VNodeProperties, children: VNode[]): void {
 		this._setNode(element, projectionOptions, vnodeSelector, properties, children);
+		this.applyDeferredProperties(<HTMLElement> element, properties);
 		this.onElementUpdated(element, String(properties.key));
 	}
 
@@ -655,7 +672,28 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 			return this.dNodeToVNode(child);
 		});
 
+		this._prepareDeferredProperties(dNode);
+
 		return dNode.render();
+	}
+
+	private _prepareDeferredProperties(node: DNode) {
+		if (isHNode(node)) {
+			const { properties = {} } = node;
+			const { styles = {} } = properties;
+
+			if (properties.key) {
+				Object.keys(styles).forEach(styleName => {
+					if (typeof styles[styleName] === 'function') {
+						this._deferredProperties.set(<string> properties.key, (this._deferredProperties.get(<string> properties.key) || []).concat({
+							propertyName: styleName,
+							callback: styles[styleName]
+						}));
+						delete styles[styleName];
+					}
+				});
+			}
+		}
 	}
 
 	/**
