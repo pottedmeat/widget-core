@@ -65,6 +65,7 @@ export interface WidgetMetaConstructor<T> {
 
 export interface WidgetMetaProperties {
 	nodes: Map<string, any>;
+	invalidate: () => void;
 }
 
 export interface WidgetMeta {
@@ -258,7 +259,8 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 		let cached = this._metaMap.get(MetaType);
 		if (!cached) {
 			cached = new MetaType({
-				nodes: this._nodeMap
+				nodes: this._nodeMap,
+				invalidate: this.invalidate.bind(this)
 			});
 
 			this._metaMap.set(MetaType, cached);
