@@ -40,6 +40,7 @@ export interface InternalWNode extends WNode {
 		bind: any;
 	};
 }
+
 export interface InternalHNode extends HNode {
 	properties: {
 		bind: any;
@@ -50,6 +51,12 @@ enum WidgetRenderState {
 	IDLE = 1,
 	PROPERTIES,
 	RENDER
+}
+
+interface DeferredProperty {
+	object: 'properties' | 'styles';
+	propertyName: string;
+	callback: () => any;
 }
 
 /**
@@ -214,6 +221,7 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 	private _metaMap = new WeakMap<WidgetMetaConstructor<any>, MetaBase>();
 	private _nodeMap = new Map<string, HTMLElement>();
 	private _requiredNodes = new Set<string>();
+	private _deferredProperties = new Map<string, DeferredProperty[]>();
 
 	/**
 	 * @constructor
@@ -261,6 +269,12 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 		return cached as T;
 	}
 
+	@beforeRender()
+	protected clearDeferredProperties(renderFunction: any, properties: any, children: DNode[]): any {
+		this._deferredProperties.clear();
+		return renderFunction;
+	}
+
 	/**
 	 * A render decorator that registers vnode callbacks for 'afterCreate' and
 	 * 'afterUpdate' that will in turn call lifecycle methods onElementCreated and onElementUpdated.
@@ -291,10 +305,17 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 		return node;
 	}
 
-	protected applyDeferredProperties(element: HTMLElement, properties: VNodeProperties) {
-		if (this._deferredProperties.has(<string> properties.key)) {
-			(this._deferredProperties.get(<string> properties.key) || []).forEach((style: any) => {
-				element.style[style.propertyName] = style.callback.apply(this);
+	protected applyDeferredProperties(element: any, properties: VNodeProperties) {
+		const key = properties.key;
+		const deferredProperties = this._deferredProperties;
+		if (typeof key === 'string' && deferredProperties.has(key)) {
+			(deferredProperties.get(key) || []).forEach(({ object, propertyName, callback }) => {
+				if (object === 'properties') {
+					element[propertyName] = callback.call(this);
+				}
+				if (object === 'styles') {
+					element.style[propertyName] = callback.call(this);
+				}
 			});
 		}
 	}
@@ -305,6 +326,7 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 	private afterCreateCallback(element: Element, projectionOptions: ProjectionOptions, vnodeSelector: string,
 		properties: VNodeProperties, children: VNode[]): void {
 		this._setNode(element, properties);
+		this.applyDeferredProperties(element, properties);
 		this.onElementCreated(element, String(properties.key));
 	}
 
@@ -314,6 +336,7 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 	private afterUpdateCallback(element: Element, projectionOptions: ProjectionOptions, vnodeSelector: string,
 		properties: VNodeProperties, children: VNode[]): void {
 		this._setNode(element, properties);
+		this.applyDeferredProperties(element, properties);
 		this.onElementUpdated(element, String(properties.key));
 	}
 
@@ -680,19 +703,39 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 
 	private _prepareDeferredProperties(node: DNode) {
 		if (isHNode(node)) {
-			const { properties = {} } = node;
-			const { styles = {} } = properties;
+			const {
+				properties = {},
+				properties: {
+					key,
+					styles = {}
+				}
+			} = node;
 
-			if (properties.key) {
-				Object.keys(styles).forEach(styleName => {
-					if (typeof styles[styleName] === 'function') {
-						this._deferredProperties.set(<string> properties.key, (this._deferredProperties.get(<string> properties.key) || []).concat({
-							propertyName: styleName,
-							callback: styles[styleName]
-						}));
-						delete styles[styleName];
+			if (typeof key === 'string') {
+				const deferredProperties = this._deferredProperties.get(key) || [];
+				[ 'scrollTop' ].forEach(propertyName => {
+					const callback = properties[propertyName];
+					if (typeof callback === 'function') {
+						deferredProperties.push({
+							callback,
+							object: 'properties',
+							propertyName
+						});
+						delete (<any> properties)[propertyName]; // cast to any to delete read-only property
 					}
 				});
+				Object.keys(styles).forEach(propertyName => {
+					const callback = styles[propertyName];
+					if (typeof callback === 'function') {
+						deferredProperties.push({
+							callback,
+							object: 'styles',
+							propertyName
+						});
+						delete styles[propertyName];
+					}
+				});
+				this._deferredProperties.set(key, deferredProperties);
 			}
 		}
 	}

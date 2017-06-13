@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="../../../../../node_modules/@dojo/loader/loader.js"></script>
+</head>
+<body>
+
+<button id="button">Click me</button>
+
+<script>
+    require.config({
+        packages: [
+            { name: '@dojo', location: '../../../../../node_modules/@dojo' },
+            { name: 'maquette', location: '../../../../../node_modules/maquette/dist', main: 'maquette' },
+            { name: 'pepjs', location: '../../../../../node_modules/pepjs/dist', main: 'pep' }
+        ]
+    });
+
+    require(['./deferredProperties'], function() {
+    });
+</script>
+</body>
+</html>
