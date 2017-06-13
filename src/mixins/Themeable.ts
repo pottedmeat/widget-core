@@ -1,8 +1,11 @@
 import { assign } from '@dojo/core/lang';
 import { includes, find } from '@dojo/shim/array';
 import Map from '@dojo/shim/Map';
-import { Constructor, WidgetProperties, PropertiesChangeEvent } from './../interfaces';
-import { WidgetBase, onPropertiesChanged, handleDecorator } from './../WidgetBase';
+import { Constructor, DNode, WidgetProperties, PropertiesChangeEvent } from './../interfaces';
+import { w, registry } from './../d';
+import { WidgetRegistry } from './../WidgetRegistry';
+import { BaseInjector, Context, Injector } from './../Injector';
+import { beforeRender, WidgetBase, onPropertiesChanged, handleDecorator } from './../WidgetBase';
 
 /**
  * A representation of the css class names to be applied and
@@ -23,6 +26,7 @@ export type ClassNames = {
  * Properties required for the themeable mixin
  */
 export interface ThemeableProperties extends WidgetProperties {
+	injectedTheme?: any;
 	theme?: any;
 	extraClasses?: any;
 }
@@ -55,6 +59,8 @@ type ThemeClasses = { [key: string]: string; };
 
 const THEME_KEY = ' _key';
 
+export const INJECTED_THEME_KEY = Symbol('theme');
+
 /**
  * Interface for the ThemeableMixin
  */
@@ -68,6 +74,8 @@ export interface ThemeableMixin {
 	 * @returns a function chain to `get` or process more classes using `fixed`
 	 */
 	classes(...classNames: (string | null)[]): ClassesFunctionChain;
+
+	properties: ThemeableProperties;
 }
 
 /**
@@ -128,10 +136,29 @@ function createThemeClassesLookup(classes: ThemeClasses[]): ClassNames {
 }
 
 /**
+ * Convenience function that is given a theme and an optional registry, the theme
+ * injector is defined against the registry, returning the theme context.
+ *
+ * @param theme the theme to set
+ * @param themeRegistry registry to define the theme injector against. Defaults
+ * to the global registry
+ *
+ * @returns the theme context instance used to set the theme
+ */
+export function registerThemeInjector(theme: any, themeRegistry: WidgetRegistry = registry): Context {
+	const themeInjectorContext = new Context(theme);
+	const ThemeInjectorBase = Injector(BaseInjector, themeInjectorContext);
+	themeRegistry.define(INJECTED_THEME_KEY, ThemeInjectorBase);
+	return themeInjectorContext;
+}
+
+/**
  * Function that returns a class decorated with with Themeable functionality
  */
-export function ThemeableMixin<T extends Constructor<WidgetBase<ThemeableProperties>>>(base: T): T & Constructor<ThemeableMixin> {
+export function ThemeableMixin<T extends Constructor<WidgetBase<any>>>(base: T): T & Constructor<ThemeableMixin> {
 	class Themeable extends base {
+
+		public properties: ThemeableProperties;
 
 		/**
 		 * The Themeable baseClasses
@@ -197,6 +224,28 @@ export function ThemeableMixin<T extends Constructor<WidgetBase<ThemeablePropert
 			};
 
 			return assign(classesGetter.bind(classesFunctionChain), classesFunctionChain);
+		}
+
+		@beforeRender()
+		protected injectTheme(renderFunc: () => DNode, properties: ThemeableProperties, children: DNode[]): () => DNode {
+			return () => {
+				const hasInjectedTheme = this.registries.has(INJECTED_THEME_KEY);
+				if (hasInjectedTheme) {
+					return w<BaseInjector>(INJECTED_THEME_KEY, {
+						scope: this,
+						render: renderFunc,
+						getProperties: (inject: Context, properties: ThemeableProperties): ThemeableProperties => {
+							if (!properties.theme && this._theme !== properties.injectedTheme) {
+								this._recalculateClasses = true;
+							}
+							return { injectedTheme: inject.get() };
+						},
+						properties,
+						children
+					});
+				}
+				return renderFunc();
+			};
 		}
 
 		/**
@@ -274,7 +323,7 @@ export function ThemeableMixin<T extends Constructor<WidgetBase<ThemeablePropert
 		 * Recalculate registered classes for current theme.
 		 */
 		private recalculateThemeClasses() {
-			const { properties: { theme = {} } } = this;
+			const { properties: { injectedTheme = {}, theme = injectedTheme } } = this;
 			if (!this._registeredBaseThemes) {
 				this._registeredBaseThemes = [ ...this.getDecorator('baseThemeClasses') ].reverse();
 				this.checkForDuplicates();

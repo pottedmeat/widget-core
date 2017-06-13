@@ -1,15 +1,17 @@
+import global from '@dojo/core/global';
 import * as registerSuite from 'intern!object';
 import * as assert from 'intern/chai!assert';
-import { WidgetMeta, WidgetMetaProperties, WidgetBase } from '../../../src/WidgetBase';
 import { v } from '../../../src/d';
 import { ProjectorMixin } from '../../../src/main';
+import { Base as MetaBase } from '../../../src/meta/Base';
+import { WidgetBase } from '../../../src/WidgetBase';
 import { stub } from 'sinon';
 
 let rAF: any;
 
 function resolveRAF() {
 	for (let i = 0; i < rAF.callCount; i++) {
-		rAF.getCall(0).args[0]();
+		rAF.getCall(i).args[0]();
 	}
 	rAF.reset();
 }
@@ -18,20 +20,15 @@ registerSuite({
 	name: 'meta base',
 
 	beforeEach() {
-		rAF = stub(global, 'requestAnimationFrame');
+		rAF = stub(global, 'requestAnimationFrame').returns(1);
 	},
 
 	afterEach() {
 		rAF.restore();
 	},
 
-	'meta is provided a list of nodes with keys'() {
-		class TestMeta implements WidgetMeta {
-			nodes: any;
-
-			constructor(props: WidgetMetaProperties) {
-				this.nodes = props.nodes;
-			}
+	'meta returns a singleton'() {
+		class TestMeta extends MetaBase {
 		}
 
 		class TestWidget extends ProjectorMixin(WidgetBase)<any> {
@@ -51,32 +48,127 @@ registerSuite({
 
 		const widget = new TestWidget();
 		widget.append(div);
-		const meta = widget.getMeta();
 
-		assert.isTrue(meta.nodes.size > 0);
-		assert.isNotNull(meta.nodes.get('root'));
+		assert.strictEqual(widget.getMeta(), widget.getMeta());
 	},
 
-	'meta renders the node if it has to'(this: any) {
-		class TestMeta implements WidgetMeta {
-			nodes: any;
+	'meta is provided a list of nodes with keys'() {
+		class TestMeta extends MetaBase {
+		}
 
-			requiresRender = true;
-
-			constructor(props: WidgetMetaProperties) {
-				this.nodes = props.nodes;
+		class TestWidget extends ProjectorMixin(WidgetBase) {
+			render() {
+				return v('div', {
+					innerHTML: 'hello world',
+					key: 'root'
+				});
 			}
+
+			getMeta() {
+				return this.meta(TestMeta);
+			}
+		}
+
+		const div = document.createElement('div');
+
+		const widget = new TestWidget();
+		widget.append(div);
+		const meta = widget.getMeta();
+
+		assert.isTrue(meta.has('root'));
+	},
+
+	'meta renders the node if it has to'() {
+		class TestMeta extends MetaBase {
 		}
 
 		let renders = 0;
 
-		class TestWidget extends ProjectorMixin(WidgetBase)<any> {
+		class TestWidget extends ProjectorMixin(WidgetBase) {
 			nodes: any;
 
 			render() {
 				renders++;
 
-				this.meta(TestMeta);
+				this.meta(TestMeta).has('greeting');
+				this.meta(TestMeta).has('name');
+
+				return v('div', {
+					innerHTML: 'hello',
+					key: 'greeting'
+				}, [
+					v('div', {
+						innerHTML: 'world',
+						key: 'name'
+					})
+				]);
+			}
+		}
+
+		const div = document.createElement('div');
+
+		const widget = new TestWidget();
+		widget.append(div);
+
+		resolveRAF();
+
+		assert.strictEqual(renders, 2, 'expected two renders');
+	},
+
+	'multi-step render'() {
+		class TestMeta extends MetaBase {
+		}
+
+		let renders = 0;
+
+		class TestWidget extends ProjectorMixin(WidgetBase) {
+			nodes: any;
+
+			render() {
+				renders++;
+
+				const test = this.meta(TestMeta);
+
+				return v('div', {
+					innerHTML: 'hello',
+					key: 'greeting'
+				}, [
+					test.has('greeting') ? v('div', {
+						innerHTML: 'world',
+						key: 'name'
+					}, [
+						test.has('name') ? v('div', {
+							innerHTML: '!',
+							key: 'exclmation'
+						}) : null
+					]) : null
+				]);
+			}
+		}
+
+		const div = document.createElement('div');
+
+		const widget = new TestWidget();
+		widget.append(div);
+
+		resolveRAF();
+
+		assert.strictEqual(renders, 3, 'expected three renders');
+	},
+
+	'meta throws an error if a required node is not found'() {
+		class TestMeta extends MetaBase {
+		}
+
+		let renders = 0;
+
+		class TestWidget extends ProjectorMixin(WidgetBase) {
+			nodes: any;
+
+			render() {
+				renders++;
+
+				this.meta(TestMeta).has('test');
 
 				return v('div', {
 					innerHTML: 'hello world',
@@ -90,9 +182,8 @@ registerSuite({
 		const widget = new TestWidget();
 		widget.append(div);
 
-		resolveRAF();
-		resolveRAF();
-
-		assert.strictEqual(renders, 2, 'expected two renders');
+		assert.throws(() => {
+			resolveRAF();
+		});
 	}
 });

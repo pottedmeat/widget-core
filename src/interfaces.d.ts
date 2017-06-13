@@ -1,6 +1,8 @@
 import { Evented } from '@dojo/core/Evented';
 import { EventTypedObject } from '@dojo/interfaces/core';
 import { VNode, VNodeProperties, ProjectionOptions } from '@dojo/interfaces/vdom';
+import Map from '@dojo/shim/Map';
+import Set from '@dojo/shim/Set';
 
 /**
  * Generic constructor type
@@ -232,7 +234,7 @@ export interface HNode {
 	/**
 	 * Array of processed VNode children.
 	 */
-	vNodes?: (string | VNode | null)[];
+	vNodes?: ((string | VNode | null)[] |string | VNode | null)[];
 	/**
 	 * Specified children
 	 */
@@ -367,10 +369,20 @@ export interface WidgetBaseInterface<
 	/**
 	 * Main internal function for dealing with widget rendering
 	 */
-	__render__(): VNode | string | null;
+	__render__(): (VNode | string | null)[] | VNode | string | null;
 
 	/**
 	 * invalidate the widget
 	 */
 	invalidate(): void;
+}
+
+export interface WidgetMetaConstructor<T> {
+	new (properties: WidgetMetaProperties): T;
+}
+
+export interface WidgetMetaProperties {
+	nodes: Map<string, HTMLElement>;
+	requiredNodes: Set<string>;
+	invalidate: () => void;
 }

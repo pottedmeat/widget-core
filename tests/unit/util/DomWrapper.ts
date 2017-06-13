@@ -1,128 +1,127 @@
 import * as registerSuite from 'intern!object';
-import * as assert from 'intern/chai!assert';
-import { isHNode } from '../../../src/d';
-import { HNode } from './../../../src/interfaces';
 import { WidgetBase } from './../../../src/WidgetBase';
+import { v, w } from './../../../src/d';
 import { DomWrapper } from '../../../src/util/DomWrapper';
+import global from '@dojo/core/global';
+import { stub } from 'sinon';
+import * as assert from 'intern/chai!assert';
+import ProjectorMixin from '../../../src/mixins/Projector';
+import { ThemeableMixin, theme } from '../../../src/mixins/Themeable';
 
-function callCreate(widget: WidgetBase<any>, includeUpdate = false) {
-	const hNode: HNode = <HNode> (<any> widget).render();
+let rAF: any;
+let projector: any;
 
-	assert.isTrue(isHNode(hNode));
-
-	assert.isFunction(hNode.properties.afterCreate);
-
-	if (includeUpdate) {
-		assert.isFunction(hNode.properties.afterUpdate);
+function resolveRAF() {
+	for (let i = 0; i < rAF.callCount; i++) {
+		rAF.getCall(0).args[0]();
 	}
-
-	(<any> widget).__render__();
-	(<any> hNode.properties).afterCreate.call(widget);
-
-	if (includeUpdate) {
-		(<any> hNode.properties).afterUpdate.call(widget);
-	}
+	rAF.reset();
 }
 
 registerSuite({
 	name: 'DomWrapper',
 
-	'DOM element is added as a child'() {
-		let mock = {};
-		let parentNode = {
-			child: null,
+	beforeEach() {
+		rAF = stub(global, 'requestAnimationFrame');
+	},
 
-			parentNode: {
-				replaceChild: function (newNode: any) {
-					parentNode.child = newNode;
-				}
+	afterEach() {
+		rAF.restore();
+		projector && projector.destroy();
+	},
+
+	'properties and attributes are maintained from element'() {
+		const domNode: any = document.createElement('custom-element');
+		domNode.foo = 'blah';
+		domNode.setAttribute('original', 'woop');
+
+		const DomNode = DomWrapper(domNode);
+		class Foo extends WidgetBase {
+			render() {
+				return v('div', [
+					w(DomNode, { id: 'foo', extra: { foo: 'bar' } })
+				]);
 			}
-		};
+		}
+		const Projector = ProjectorMixin(Foo);
+		projector = new Projector();
+		const root = document.createElement('div');
+		projector.append(root);
+		resolveRAF();
+		assert.equal(domNode.foo, 'blah');
+		assert.equal(domNode.getAttribute('original'), 'woop');
+		assert.equal(domNode.getAttribute('id'), 'foo');
+		assert.deepEqual(domNode.extra, { foo: 'bar' });
 
-		let domWrapper: any = new DomWrapper();
-		domWrapper.__setProperties__({ domNode: <any> mock });
-
-		domWrapper._dirty = false;
-		domWrapper._cachedVNode = {
-			domNode: parentNode
-		};
-
-		callCreate(domWrapper);
-
-		assert.equal(domWrapper._properties.domNode, mock);
-		assert.equal(parentNode.child, mock);
 	},
+	'supports events'() {
+		const domNode: any = document.createElement('custom-element');
+		const root = document.createElement('div');
+		let clicked = false;
 
-	'Nothing bad happens if there is no node'() {
-		let parentNode = {
-			child: null,
-
-			appendChild: function (argument: any) {
-				parentNode.child = argument;
+		const DomNode = DomWrapper(domNode);
+		class Foo extends WidgetBase {
+			_onClick() {
+				clicked = true;
 			}
-		};
-
-		let domWrapper: any = new DomWrapper();
-		domWrapper.__setProperties__({ domNode: <any> 'test' });
-
-		domWrapper._dirty = false;
-		domWrapper._cachedVNode = {
-			domNode: null
-		};
-
-		callCreate(domWrapper);
-	},
-
-	'Nothing bad happens if there if node is a string'() {
-		let domWrapper: any = new DomWrapper();
-		domWrapper.__setProperties__({ domNode: <any> 'test' });
-
-		domWrapper._dirty = false;
-		domWrapper._cachedVNode = {
-			domNode: 'test'
-		};
-
-		callCreate(domWrapper);
-	},
-
-	'updates with no renders don\'t do anything'() {
-		let domWrapper: any = new DomWrapper();
-		domWrapper.__setProperties__({ domNode: <any> undefined });
-		domWrapper._dirty = false;
-		domWrapper._cachedVNode = {
-			domNode: null
-		};
-
-		callCreate(domWrapper, true);
-	},
-
-	'nothing bad happens if our vnode doesn\'t have a parent'() {
-		let parentNode = {
-			child: null,
-
-			appendChild: function (argument: any) {
-				parentNode.child = argument;
+			render() {
+				return w(DomNode, { onclick: this._onClick });
 			}
-		};
-
-		let domWrapper: any = new DomWrapper();
-		domWrapper.__setProperties__({ domNode: <any> undefined });
-		domWrapper._dirty = false;
-		domWrapper._cachedVNode = {
-			domNode: parentNode
-		};
-
-		callCreate(domWrapper, true);
+		}
+		const Projector = ProjectorMixin(Foo);
+		projector = new Projector();
+		projector.append(root);
+		resolveRAF();
+		domNode.click();
+		assert.isTrue(clicked);
 	},
+	'supports classes and styles'() {
+		const domNode: any = document.createElement('custom-element');
+		const root = document.createElement('div');
 
-	'render aspect is ok if we dont return an hnode'() {
-		let domWrapper: any = new DomWrapper();
-		domWrapper.__setProperties__({ domNode: <any> undefined });
-		domWrapper._dirty = false;
-		domWrapper._cachedVNode = {
-			domNode: 'test'
+		const DomNode = DomWrapper(domNode);
+		const myTheme = {
+			class1: 'classFoo'
 		};
 
-		domWrapper.render();
+		@theme(myTheme)
+		class Foo extends ThemeableMixin(WidgetBase) {
+			render() {
+				return w(DomNode, {
+					styles: {
+						color: 'red'
+					},
+					classes: this.classes(myTheme.class1)
+				});
+			}
+		}
+		const Projector = ProjectorMixin(Foo);
+		projector = new Projector();
+		projector.append(root);
+		resolveRAF();
+		assert.isTrue(domNode.classList.contains('classFoo'));
+		assert.equal(domNode.style.color, 'red');
+	},
+	'onAttached'() {
+		let attached = false;
+		const domNode: any = document.createElement('custom-element');
+		const root = document.createElement('div');
+
+		const DomNode = DomWrapper(domNode, {
+			onAttached() {
+				attached = true;
+				assert.equal(domNode.parentNode, root);
+			}
+		});
+		class Foo extends WidgetBase {
+			render() {
+				return w(DomNode, {});
+			}
+		}
+		const Projector = ProjectorMixin(Foo);
+		projector = new Projector();
+		projector.append(root);
+		resolveRAF();
+		assert.isTrue(attached);
 	}
 });

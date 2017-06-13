@@ -2,11 +2,16 @@ import { VNode } from '@dojo/interfaces/vdom';
 import Promise from '@dojo/shim/Promise';
 import * as registerSuite from 'intern!object';
 import * as assert from 'intern/chai!assert';
-import { stub, spy } from 'sinon';
+import { stub, spy, SinonStub } from 'sinon';
 import { v, w, registry } from '../../src/d';
 import { DNode, WidgetProperties } from '../../src/interfaces';
 import {
-	WidgetBase, diffProperty, DiffType, afterRender, beforeRender, onPropertiesChanged
+	WidgetBase,
+	diffProperty,
+	DiffType,
+	afterRender,
+	beforeRender,
+	onPropertiesChanged
 } from '../../src/WidgetBase';
 import WidgetRegistry, { WIDGET_BASE_TYPE } from './../../src/WidgetRegistry';
 
@@ -20,13 +25,39 @@ interface TestProperties extends WidgetProperties {
 
 class TestWidget extends WidgetBase<TestProperties> {}
 
+let consoleStub: SinonStub;
+
 registerSuite({
 	name: 'WidgetBase',
+	beforeEach() {
+		consoleStub = stub(console, 'warn');
+	},
+	afterEach() {
+		consoleStub.restore();
+	},
 	api() {
 		const widgetBase = new WidgetBase();
 		assert(widgetBase);
 		assert.isFunction(widgetBase.__render__);
 		assert.isFunction(widgetBase.invalidate);
+	},
+	'deprecated api warning'() {
+		class TestWidgetOne extends WidgetBase<any> {
+			onElementUpdated(element: Element, key: string) {
+
+			}
+			onElementCreated(element: Element, key: string) {
+
+			}
+		}
+		class TestWidgetTwo extends WidgetBase<any> {}
+
+		const name = (<any> TestWidgetOne).name || 'unknown';
+		new TestWidgetOne();
+		new TestWidgetTwo();
+		assert.isTrue(consoleStub.calledTwice);
+		assert.isTrue(consoleStub.firstCall.calledWith(`Usage of 'onElementedCreated' has been deprecated and will be removed in a future version, see https://github.com/dojo/widget-core/issues/559 for details (${name})`));
+		assert.isTrue(consoleStub.secondCall.calledWith(`Usage of 'onElementUpdated' has been deprecated and will be removed in a future version, see https://github.com/dojo/widget-core/issues/559 for details (${name})`));
 	},
 	children() {
 		let childrenEventEmitted = false;
@@ -969,6 +1000,31 @@ widget.__setProperties__({
 			assert.isUndefined(result.children);
 			assert.equal(result.text, 'I am a text node');
 		},
+		'render returns array'() {
+			class TestChildWidget extends WidgetBase {
+				render() {
+					return [
+						v('div', [ 'text' ]),
+						v('span', { key: 'span' })
+					];
+				}
+			}
+
+			class TestWidget extends WidgetBase {
+				render() {
+					return v('div', [ w(TestChildWidget, {}) ]);
+				}
+			}
+
+			const widget = new TestWidget();
+			const result: any = widget.__render__();
+			assert.strictEqual(result.vnodeSelector, 'div');
+			assert.lengthOf(result.children, 2);
+			assert.strictEqual(result.children![0].vnodeSelector, 'div');
+			assert.strictEqual(result.children![0].text, 'text');
+			assert.strictEqual(result.children![1].vnodeSelector, 'span');
+			assert.strictEqual(result.children![1].properties.key, 'span');
+		},
 		'instance gets passed to VNodeProperties as bind to widget and all children'() {
 			class TestWidget extends WidgetBase<any> {
 				render() {
@@ -1070,9 +1126,14 @@ widget.__setProperties__({
 			assert.strictEqual(lastRenderChild.vnodeSelector, 'footer');
 		},
 		'render with multiple children of the same type without an id'() {
-			const warnMsg = 'It is recommended to provide a unique `key` property when using the same widget multiple times';
 			class TestWidgetOne extends WidgetBase<any> {}
 			class TestWidgetTwo extends WidgetBase<any> {}
+			const widgetName = (<any> TestWidgetTwo).name;
+			let warnMsg = 'It is recommended to provide a unique \'key\' property when using the same widget multiple times';
+
+			if (widgetName) {
+				warnMsg = `It is recommended to provide a unique 'key' property when using the same widget (${widgetName}) multiple times`;
+			}
 
 			class TestWidget extends WidgetBase<any> {
 				render() {
@@ -1085,7 +1146,6 @@ widget.__setProperties__({
 			}
 
 			const widget: any = new TestWidget();
-			const consoleStub = stub(console, 'warn');
 			widget.__render__();
 			assert.isTrue(consoleStub.calledOnce);
 			assert.isTrue(consoleStub.calledWith(warnMsg));
@@ -1093,7 +1153,6 @@ widget.__setProperties__({
 			widget.__render__();
 			assert.isTrue(consoleStub.calledThrice);
 			assert.isTrue(consoleStub.calledWith(warnMsg));
-			consoleStub.restore();
 		},
 		'__render__ with updated array properties'() {
 			const properties = {
@@ -1276,6 +1335,28 @@ widget.__setProperties__({
 		widget.invalidate();
 		widget.__render__();
 		assert.equal(foo, 2);
+	},
+	'widget should not be marked as dirty if previous and current children are empty'() {
+		let foo = 0;
+		class FooWidget extends WidgetBase<any> {
+			render() {
+				foo++;
+				return v('div');
+			}
+		}
+
+		class TestWidget extends WidgetBase<any> {
+			render() {
+				return w(FooWidget, { key: '1' });
+			}
+		}
+
+		const widget: any = new TestWidget();
+		widget.__render__();
+		assert.equal(foo, 1);
+		widget.invalidate();
+		widget.__render__();
+		assert.equal(foo, 1);
 	},
 	'properties:changed should mark as dirty but not invalidate'() {
 		let foo = 0;

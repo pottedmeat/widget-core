@@ -1,7 +1,9 @@
+import { assign } from '@dojo/core/lang';
 import global from '@dojo/core/global';
+import { createHandle } from '@dojo/core/lang';
 import { Handle } from '@dojo/interfaces/core';
 import { VNode } from '@dojo/interfaces/vdom';
-import { dom, Projection, ProjectionOptions, VNodeProperties } from 'maquette';
+import { h, dom, Projection, ProjectionOptions, VNodeProperties } from 'maquette';
 import 'pepjs';
 import cssTransitions from '../animations/cssTransitions';
 import { Constructor, DNode, WidgetProperties } from './../interfaces';
@@ -70,6 +72,15 @@ export interface ProjectorMixin<P extends WidgetProperties> {
 	resume(): void;
 
 	/**
+	 * Attach the project to a _sandboxed_ document fragment that is not part of the DOM.
+	 *
+	 * When sandboxed, the `Projector` will run in a sync manner, where renders are completed within the same turn.
+	 * The `Projector` creates a `DocumentFragment` which replaces any other `root` that has been set.
+	 * @param doc The `Document` to use, which defaults to the global `document`.
+	 */
+	sandbox(doc?: Document): Handle;
+
+	/**
 	 * Schedule a render.
 	 */
 	scheduleRender(): void;
@@ -88,6 +99,11 @@ export interface ProjectorMixin<P extends WidgetProperties> {
 	 * Sets the widget's children
 	 */
 	setChildren(children: DNode[]): void;
+
+	/**
+	 * Return a `string` that represents the HTML of the current projection.  The projector needs to be attached.
+	 */
+	toHtml(): string;
 
 	/**
 	 * Root element to attach the projector
@@ -143,19 +159,24 @@ function setDomNodes(vnode: VNode, domNode: Element | null = null) {
 	}
 }
 
-export function ProjectorMixin<P, T extends Constructor<WidgetBase<P>>>(base: T): T & Constructor<ProjectorMixin<P>> {
-	return class extends base {
+export function ProjectorMixin<P, T extends Constructor<WidgetBase<P>>>(Base: T): T & Constructor<ProjectorMixin<P>> {
+	class Projector extends Base {
 
 		public projectorState: ProjectorAttachState;
 
 		private _root: Element;
+		private _async = true;
 		private _attachHandle: Handle;
 		private _projectionOptions: ProjectionOptions;
 		private _projection: Projection | undefined;
 		private _scheduled: number | undefined;
 		private _paused: boolean;
-		private _boundDoRender: FrameRequestCallback;
+		private _boundDoRender: () => void;
 		private _boundRender: Function;
+		private _projectorChildren: DNode[];
+		private _projectorProperties: P;
+		private _rootTagName: string;
+		private _attachType: AttachType;
 
 		constructor(...args: any[]) {
 			super(...args);
@@ -222,7 +243,12 @@ export function ProjectorMixin<P, T extends Constructor<WidgetBase<P>>>(base: T)
 
 		public scheduleRender() {
 			if (this.projectorState === ProjectorAttachState.Attached && !this._scheduled && !this._paused) {
-				this._scheduled = global.requestAnimationFrame(this._boundDoRender);
+				if (this._async) {
+					this._scheduled = global.requestAnimationFrame(this._boundDoRender);
+				}
+				else {
+					this._boundDoRender();
+				}
 			}
 		}
 
@@ -237,20 +263,69 @@ export function ProjectorMixin<P, T extends Constructor<WidgetBase<P>>>(base: T)
 			return this._root;
 		}
 
+		public sandbox(doc: Document = document): Handle {
+			if (this.projectorState === ProjectorAttachState.Attached) {
+				throw new Error('Projector already attached, cannot create sandbox');
+			}
+			this._async = false;
+			const previousRoot = this.root;
+
+			/* free up the document fragment for GC */
+			this.own(createHandle(() => {
+				this._root = previousRoot;
+			}));
+			return this.attach({
+				/* DocumentFragment is not assignable to Element, but provides everything needed to work */
+				root: doc.createDocumentFragment() as any,
+				type: AttachType.Append
+			});
+		}
+
 		public setChildren(children: DNode[]): void {
+			this._projectorChildren = [ ...children ];
 			super.__setChildren__(children);
 		}
 
 		public setProperties(properties: P & { [index: string]: any }): void {
+			this._projectorProperties = assign({}, properties);
 			super.__setProperties__(properties);
 		}
 
-		public __render__() {
-			const result = super.__render__();
-			if (typeof result === 'string' || result === null) {
-				throw new Error('Must provide a VNode at the root of a projector');
+		public toHtml(): string {
+			if (this.projectorState !== ProjectorAttachState.Attached || !this._projection) {
+				throw new Error('Projector is not attached, cannot return an HTML string of projection.');
+			}
+			return this._projection.domNode.outerHTML;
+		}
+
+		public __render__(): VNode {
+			if (this._projectorChildren) {
+				this.setChildren(this._projectorChildren);
+			}
+			if (this._projectorProperties) {
+				this.setProperties(this._projectorProperties);
+			}
+			let result = super.__render__();
+
+			if (Array.isArray(result) || typeof result === 'string' || result === null) {
+				if (!this._rootTagName) {
+					this._rootTagName = 'span';
+				}
+
+				result = h(this._rootTagName, {}, result);
+			}
+			else if (!this._rootTagName) {
+				this._rootTagName = result.vnodeSelector;
 			}
 
+			if (this._rootTagName !== result.vnodeSelector) {
+				if (this._attachType === AttachType.Merge) {
+					assign(result, { vnodeSelector: this._rootTagName });
+				}
+				else {
+					result = h(this._rootTagName, {}, result);
+				}
+			}
 			return result;
 		}
 
@@ -278,6 +353,7 @@ export function ProjectorMixin<P, T extends Constructor<WidgetBase<P>>>(base: T)
 		}
 
 		private attach({ type, root }: AttachOptions): Handle {
+			this._attachType = type;
 			if (root) {
 				this.root = root;
 			}
@@ -304,6 +380,7 @@ export function ProjectorMixin<P, T extends Constructor<WidgetBase<P>>>(base: T)
 					this._projection = dom.append(this.root, this._boundRender(), this._projectionOptions);
 				break;
 				case AttachType.Merge:
+					this._rootTagName = this._root.tagName.toLowerCase();
 					const vnode: VNode = this._boundRender();
 					setDomNodes(vnode, this.root);
 					this._projection = dom.merge(this.root, vnode, this._projectionOptions);
@@ -315,7 +392,9 @@ export function ProjectorMixin<P, T extends Constructor<WidgetBase<P>>>(base: T)
 
 			return this._attachHandle;
 		}
-	};
+	}
+
+	return Projector;
 }
 
 export default ProjectorMixin;

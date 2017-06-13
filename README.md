@@ -23,6 +23,7 @@ We also provide a suite of pre-built widgets to use in your applications: [(@doj
             - [Custom property diff control](#custom-property-diff-control)
             - [The `properties:changed` event](#the-propertieschanged-event)
         - [Projector](#projector)
+		  - [Server Side Rendering](#server-side-rendering)
         - [Event Handling](#event-handling)
         - [Widget Registry](#widget-registry)
         - [Injecting State](#injecting-state)
@@ -135,40 +136,24 @@ As well as interacting with the VDOM by passing it HyperScript, you can also pas
 
 #### `w`
 
-The following code creates a widget using the `widgetConstructor`.
-
-```ts
-w<P extends WidgetProperties>(widgetConstructor: string | WidgetBaseConstructor<P>): WNode[];
-```
-
 The following code creates a widget using the `widgetConstructor` and `properties`.
 
 ```ts
-w<P extends WidgetProperties>(widgetConstructor: string | WidgetBaseConstructor<P>, properties: P): WNode[];
-```
-
-The following code creates a widget using the `widgetConstructor` and `children`.
-
-```ts
-w<P extends WidgetProperties>(widgetConstructor: string | WidgetBaseConstructor<P>, children: DNode[]): WNode[];
+w<W extends WidgetBaseInterface>(widgetConstructor: W | RegistryLabel, properties: W['properties']): WNode<W>;
 ```
 
 The following code creates a widget using the `widgetConstructor`, `properties` and `children`
 
 ```ts
-w<P extends WidgetProperties>(widgetConstructor: string | WidgetBaseConstructor<P>, properties: P, children: DNode[]): WNode[];
+w<W extends WidgetBaseInterface>(widgetConstructor: W | RegistryLabel, properties: W['properties'], children: W['children']): WNode<W>;
 ```
 Example `w` constructs:
 
 ```ts
-w(WidgetClass);
 w(WidgetClass, properties);
-w(WidgetClass, children);
 w(WidgetClass, properties, children);
 
-w('my-widget');
 w('my-widget', properties);
-w('my-widget', children);
 w('my-widget', properties, children);
 ```
 
@@ -203,7 +188,7 @@ Once the project is configured, `tsx` can be used in a widget's `render` functio
 class MyWidgetWithTsx extends WidgetBase<MyProperties> {
 	protected render(): DNode {
 		const { clear, properties: { completed, count, activeCount, activeFilter } } = this;
-	
+
 		return (
 			<footer classes={this.classes(css.footer)}>
 				<span classes={this.classes(css.count)}>
@@ -458,17 +443,56 @@ const MyProjector = ProjectorMixin(MyWidget);
 
 Projectors behave in the same way as any other widget **except** that they need to be manually instantiated and managed outside of the standard widget lifecycle.
 
-There are 3 ways that a projector widget can be added to the DOM - `.append`, `.merge` or `.replace`, depending on the type of attachment required.
+There are 3 ways that a projector widget can be added to the DOM - `.append`, `.merge`, `.replace`, or `.sandbox`, depending on the type of attachment required.
 
  - `append`  - Creates the widget as a child to the projector's `root` node
  - `merge`   - Merges the widget with the projector's `root` node
  - `replace` - Replace the projector's `root` node with the widget
+ - `sandbox` - Create a document fragment as the projector's `root` node
 
 ```ts
 const MyProjector = ProjectorMixin(MyWidget);
 
-const myProjector = new MyProjector({})
+const myProjector = new MyProjector()
 myProjector.append(root);
+```
+
+##### Server Side Rendering
+
+The `Projector` provides several features which facilitate server side rendering and progressive enhancement.  For rendering on the server, there are the methods `.sandbox()` and `.toHtml()`.
+
+###### .sandbox()
+
+`.sandbox()` does two things.  It creates the `root` of the projector as a `DocumentFragment`.  This ensures that the rendering of the projector does not interfere with the `document`.  In order to server side render, you still need something like `jsdom` though in order to provide the functionality needed to generate the DOM structure which will be shipped to the browser.  Also, when the projector is attached it will render synchronously.  Usually the projector renders asyncronously to ensure that renders have a minimal impact on the user experience, helping eliminate _jank_.  This can cause problems though in that when exporting the HTML, the projector needs to be in a _known_ render state. `.sandbox()` takes a single optional argument which is a `Document`.  If none is supplied, then the global `document` will be used.
+
+An example using [`jsdom`](https://github.com/tmpvar/jsdom):
+
+```ts
+import { JSDOM } from 'jsdom';
+import ProjectorMixin from '@dojo/widget-core/mixins/Projector';
+import App from './widgets/App';
+
+const dom = new JSDOM('', { runScripts: 'dangerously' });
+const projector = new (ProjectorMixin(App))();
+const projector.sandbox(dom.window.document);
+```
+
+###### .toHtml()
+
+`.toHtml()` returns a string which represents the current render of the `Projector`.  While it can be used with any attachment mode, it is most effective when using `.sandbox()`, as this mode operates synronously, ensuring that the string returned accuretly represents the current rendered DOM structure.  Building on the example from above:
+
+```ts
+import { JSDOM } from 'jsdom';
+import ProjectorMixin from '@dojo/widget-core/mixins/Projector';
+import App from './widgets/App';
+
+const dom = new JSDOM('', { runScripts: 'dangerously' });
+const projector = new (ProjectorMixin(App))();
+const projector.sandbox(dom.window.document);
+
+/* set any App properties/children/state */
+const html = projector.toHtml();
+/* `html` contains the rendered HTML */
 ```
 
 #### Event Handling
@@ -515,14 +539,20 @@ import { specialClick } from './mySpecialFunctions';
 
 class MyWidget extends WidgetBase<WidgetProperties> {
 	render() {
-		return	w(createChildWidget, { onClick: specialClick });
+		return	w(ChildWidget, { onClick: specialClick });
 	}
 }
 ```
 
 #### Widget Registry
 
-The widget registry provides the ability to define a label against a `WidgetRegistryItem`. A `WidgetRegistryItem` is either a `WidgetConstructor` a `Promise<WidgetConstructor>` or a function that when executed returns a `Promise<WidgetConstructor>`.
+The widget registry provides the ability to define a `string` or `symbol` as a label for a `WidgetRegistryItem`. 
+
+The `WidgetRegistryItem`, can be one of the following types:
+
+1. `WidgetConstructor`
+2. `Promise<WidgetConstructor>`
+3. `() => Promise<WidgetConstructor>`
 
 A global widget registry is exported from the `d` module.
 
@@ -703,7 +733,7 @@ class MyThemeableWidget extends ThemeableMixin(WidgetBase)<MyThemeableWidgetProp
 	render: function () {
 		const { root, tab } = baseClasses;
 		return
-			v(`ul`, { classes: this.classes(root) }, [
+			v('ul', { classes: this.classes(root) }, [
 				v('li', { classes: this.classes(tab) }, [ 'tab1' ])
 				// ...
 			]);
@@ -734,12 +764,44 @@ interface MyThemeableWidgetProperties extends WidgetProperties, ThemeablePropert
 class MyThemeableWidget extends ThemeableMixin(WidgetBase)<MyThemeableWidgetProperties> {
 	render: function () {
 		// Resulting widget will have green tabs instead of baseTheme red.
-		return w(createTabPanel, { theme: customTheme });
+		return w(TabPanel, { theme: customTheme });
 	}
 }
 ```
 
 The theme can be applied to individual widgets or to a project and property passed down to its children.
+
+##### Injecting a theme
+
+The theming system supports injecting a theme that is configured externally to the usual mechanism of passing properties down the widget tree.
+
+This is done using a `ThemeInjectorContext` instance that is passed to the `Injector` mixin along with the `ThemeInjector` class. Once the theme injector is defined in the registry, the `theme` can be changed by calling the `ThemeInjectorContext#set(theme: any)` API on the instance of the injector context.
+
+```ts
+// Create the singleton injector context
+const themeInjectorContext = new ThemeInjectorContext(myTheme);
+
+// Create the base ThemeInjector using the singleton context and the Injector mixin
+const ThemeInjectorBase = Injector<ThemeInjectorContext, Constructor<ThemeInjector>>(ThemeInjector, themeInjectorContext);
+
+// Define the created ThemeInjector against the static key exported from `Themeable`
+registry.define(INJECTED_THEME_KEY, ThemeInjectorBase);
+```
+
+Once this theme injector is defined, any themeable widgets without an explicit `theme` property will be controlled via the theme set within the `themeInjectorContext`. To change the theme simply call `themeInjectorContext.set(myNewTheme);` and all widgets that are using the injected theme will be updated to the new theme.
+
+To make this even easier, `Themeable` exports a helper function wraps the behavior defined above and returns the context, with a parameter for the `theme` and an optional `registry` for the injector to be defined. If a `registry` is not provided then the global `registry` is used.
+
+```ts
+// Uses global registry
+const context = registerThemeInjector(myTheme);
+
+// Setting the theme
+context.set(myNewTheme);
+
+// Uses the user defined registry
+const context = registryThemeInjector(myTheme, myRegistry);
+```
 
 ##### Overriding Theme Classes
 
@@ -761,7 +823,7 @@ class MyThemeableWidget extends ThemeableMixin(WidgetBase)<MyThemeableWidgetProp
 	render: function () {
 		// Resulting widget will still have baseTheme red tabs,
 		// but will have font-weight: bold; applied also
-		return w(createTabPanel, { extraClasses: myExtras });
+		return w(TabPanel, { extraClasses: myExtras });
 	}
 }
 ```
@@ -814,11 +876,11 @@ class I18nWidget extends I18nMixin(WidgetBase)<I18nWidgetProperties> {
 		const messages = this.localizeBundle(greetingsBundle);
 
 		return v('div', { title: messages.hello }, [
-			w(createLabel, {
+			w(Label, {
 				// Passing a message string to a child widget.
 				label: messages.purchaseItems
 			}),
-			w(createButton, {
+			w(Button, {
 				// Passing a formatted message string to a child widget.
 				label: messages.format('itemCount', { count: 2 })
 			})
@@ -1010,73 +1072,83 @@ to the widget instance.
 
 #### Meta
 
-Widget meta is used to access information that you would normally only have access to on a DOM element. For example, the dimensions of an HTML node.  You can access and respond to meta data during a widget's render operation.
+Widget meta is used to access additional information about the widget, usually information only available through the rendered DOM element - for example, the dimensions of an HTML node. You can access and respond to meta data during a widget's render operation.
 
 ```typescript
 class TestWidget extends WidgetBase<WidgetProperties> {
-	render() {
-		const dimensions = this.meta(Dimensions).get('root');
-		
-		return v('div', {
-			key: 'root',
-			innerHTML: `Width: ${dimensions.width}`
-		});
-	}
+    render() {
+        const dimensions = this.meta(Dimensions).get('root');
+
+        return v('div', {
+            key: 'root',
+            innerHTML: `Width: ${dimensions.width}`
+        });
+    }
 }
 ```
 
 If an HTML node is required to calculate the meta information, a sensible default will be returned and your widget will be automatically re-rendered to provide more accurate information.
 
-##### Dimensions
+##### Implementing Custom Meta
 
-You can retrieve dimensional information on a widget:
+You can create your own meta if you need access to DOM nodes.
 
 ```typescript
-import Dimensions from '@dojo/widget-core/meta/Dimensions';
+import MetaBase from "@dojo/widget-core/meta/Base";
 
-// ...
-render() {
-	// using "elm" to target a specific v node
-	const hasDimensions = this.meta(Dimensions).has('elm');
-	const dimensions = this.meta(Dimensions).get('elm');
-	
-	return v('div', [
-		v('span', { key: 'elm' })
-	]);
+class HtmlMeta extends MetaBase {
+    get(key: string): string {
+        this.requireNode(key);
+        const node = this.nodes.get(key);
+        return node ? node.innerHTML : '';
+    }
 }
-// ...
 ```
 
-Dimensions returned include:
-
-* `left`
-* `top`
-* `right`
-* `bottom`
-* `width`
-* `height`
-* `scrollLeft`
-* `scrollTop`
-* `scrollRight`
-* `scrollBottom`
-
-##### Viewport Intersection
-
-The `Intersection` meta can be used to determine if an HTML element is in the viewport.
+And you can use it like:
 
 ```typescript
-import Intersection from `@dojo/widget-core/meta/Intersection`;
+class MyWidget extends WidgetBase<WidgetProperties> {
+    // ...
+    render() {
+        // run your meta
+        const html = this.meta(HtmlMeta).get('comment');
 
-// ...
-render() {
-	const isVisible = this.meta(Intersection).get('root') > 0;
-	
-	return v('div', {
-		key: 'root',
-		innerHTML: `I am ${isVisible ? 'visible' : 'invisible'}`
-	});
+        return v('div', { key: 'root', innerHTML: html });
+    }
+    // ...
 }
-// ...
+```
+
+Meta classes are provided with a few hooks into the widget, passed to the constructor:
+
+* `nodes` - A map of `key` strings to DOM elements. Only `v` nodes rendered with `key` properties are stored.
+* `requireNode` - A method that accept a `key` string to inform the widget it needs a rendered DOM element corresponding to that key. If one is available, it will be returned immediately. If not, the widget will be re-rendered and if the node does not exist on the next render, an error will be thrown.
+* `invalidate` - A method that will invalidate the widget.
+
+Extending the base class found in `meta/Base` will automatically add these hooks to the class instance as well as providing a `has` method:
+
+* `has(key: string)` - A method that returns `true` if the DOM element with the passed key exists in the rendered DOM.
+
+Meta classes that require extra options should accept them in their methods.
+
+```typescript
+import MetaBase from "@dojo/widget-core/meta/Base";
+
+interface IsTallMetaOptions {
+    minHeight: number;
+}
+
+class IsTallMeta extends MetaBase {
+    isTall(key: string, { minHeight }: IsTallMetaOptions = { minHeight: 300 }): boolean {
+        this.requireNode(key);
+        const node = this.nodes.get(key);
+        if (node) {
+            return node.offsetHeight >= minHeight;
+        }
+        return false;
+    }
+}
 ```
 
 ### Key Principles

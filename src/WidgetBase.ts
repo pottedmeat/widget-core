@@ -17,10 +17,12 @@ import {
 	PropertiesChangeEvent,
 	RegistryLabel,
 	HNode,
-	WNode
+	WNode,
+	WidgetMetaConstructor
 } from './interfaces';
-import { isWidgetBaseConstructor, WIDGET_BASE_TYPE } from './WidgetRegistry';
+import MetaBase from './meta/Base';
 import RegistryHandler from './RegistryHandler';
+import { isWidgetBaseConstructor, WIDGET_BASE_TYPE } from './WidgetRegistry';
 
 export { DiffType };
 
@@ -33,12 +35,12 @@ interface WidgetCacheWrapper {
 	used: boolean;
 }
 
-interface InternalWNode extends WNode {
+export interface InternalWNode extends WNode {
 	properties: {
 		bind: any;
 	};
 }
-interface InternalHNode extends HNode {
+export interface InternalHNode extends HNode {
 	properties: {
 		bind: any;
 	};
@@ -57,19 +59,6 @@ interface DiffPropertyConfig {
 	propertyName: string;
 	diffType: DiffType;
 	diffFunction?<P>(previousProperty: P, newProperty: P): PropertyChangeRecord;
-}
-
-export interface WidgetMetaConstructor<T> {
-	new (properties: WidgetMetaProperties): T;
-}
-
-export interface WidgetMetaProperties {
-	nodes: Map<string, any>;
-	invalidate: () => void;
-}
-
-export interface WidgetMeta {
-	requiresRender?: boolean;
 }
 
 export interface WidgetBaseEvents<P extends WidgetProperties> extends BaseEventedEvents {
@@ -181,7 +170,7 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 	/**
 	 * cachedVNode from previous render
 	 */
-	private _cachedVNode?: VNode | string;
+	private _cachedVNode?: (VNode | string | null)[] | VNode | string;
 
 	/**
 	 * internal widget properties
@@ -222,9 +211,9 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 
 	private _renderState: WidgetRenderState = WidgetRenderState.IDLE;
 
-	private _metaMap = new WeakMap<any, any>();
-	private _nodeMap = new Map<any, any>();
-	private _deferredProperties = new Map<string, any[]>();
+	private _metaMap = new WeakMap<WidgetMetaConstructor<any>, MetaBase>();
+	private _nodeMap = new Map<string, HTMLElement>();
+	private _requiredNodes = new Set<string>();
 
 	/**
 	 * @constructor
@@ -254,30 +243,22 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 				propertiesChangedFunction.call(this, evt);
 			});
 		}));
+
+		this._checkOnElementUsage();
 	}
 
-	protected meta<T extends WidgetMeta>(MetaType: WidgetMetaConstructor<T>): T {
+	protected meta<T extends MetaBase>(MetaType: WidgetMetaConstructor<T>): T {
 		let cached = this._metaMap.get(MetaType);
 		if (!cached) {
 			cached = new MetaType({
 				nodes: this._nodeMap,
+				requiredNodes: this._requiredNodes,
 				invalidate: this.invalidate.bind(this)
 			});
-
 			this._metaMap.set(MetaType, cached);
 		}
 
-		if (cached.requiresRender && !this._cachedVNode) {
-			this.invalidate(true);
-		}
-
-		return cached;
-	}
-
-	@beforeRender()
-	protected clearDeferredProperties(renderFunction: any, properties: any, children: DNode[]): any {
-		this._deferredProperties.clear();
-		return renderFunction;
+		return cached as T;
 	}
 
 	/**
@@ -285,7 +266,7 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 	 * 'afterUpdate' that will in turn call lifecycle methods onElementCreated and onElementUpdated.
 	 */
 	@afterRender()
-	protected attachLifecycleCallbacks (node: DNode): DNode {
+	protected attachLifecycleCallbacks (node: DNode | DNode[]): DNode | DNode[] {
 		// Create vnode afterCreate and afterUpdate callback functions that will only be set on nodes
 		// with "key" properties.
 
@@ -298,7 +279,7 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 	}
 
 	@afterRender()
-	protected decorateBind(node: DNode): DNode {
+	protected decorateBind(node: DNode | DNode[]): DNode | DNode[] {
 		decorate(node, (node: InternalWNode | InternalHNode) => {
 			const { properties = {} }: { properties: { bind?: any } } = node;
 			if (!properties.bind) {
@@ -323,8 +304,7 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 	 */
 	private afterCreateCallback(element: Element, projectionOptions: ProjectionOptions, vnodeSelector: string,
 		properties: VNodeProperties, children: VNode[]): void {
-		this._setNode(element, projectionOptions, vnodeSelector, properties, children);
-		this.applyDeferredProperties(<HTMLElement> element, properties);
+		this._setNode(element, properties);
 		this.onElementCreated(element, String(properties.key));
 	}
 
@@ -333,8 +313,7 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 	 */
 	private afterUpdateCallback(element: Element, projectionOptions: ProjectionOptions, vnodeSelector: string,
 		properties: VNodeProperties, children: VNode[]): void {
-		this._setNode(element, projectionOptions, vnodeSelector, properties, children);
-		this.applyDeferredProperties(<HTMLElement> element, properties);
+		this._setNode(element, properties);
 		this.onElementUpdated(element, String(properties.key));
 	}
 
@@ -360,20 +339,21 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 		// Do nothing by default.
 	}
 
-	private _setNode(element: Element, projectionOptions: ProjectionOptions, vnodeSelector: string, properties: VNodeProperties, children: VNode[]): void {
-		this._nodeMap.set(properties.key, element);
+	private _setNode(element: Element, properties: VNodeProperties): void {
+		this._nodeMap.set(String(properties.key), <HTMLElement> element);
 	}
 
 	public get properties(): Readonly<P> {
 		return this._properties;
 	}
 
-	public __setProperties__(properties: P): void {
+	public __setProperties__(originalProperties: P): void {
+		const { bind, ...properties } = <any> originalProperties;
 		this._renderState = WidgetRenderState.PROPERTIES;
 		const diffPropertyResults: { [index: string]: any } = {};
 		const diffPropertyChangedKeys: string[] = [];
 
-		this.bindFunctionProperties(properties);
+		this.bindFunctionProperties(properties, bind);
 
 		const registeredDiffPropertyConfigs: DiffPropertyConfig[] = this.getDecorator('diffProperty');
 
@@ -447,15 +427,17 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 	}
 
 	public __setChildren__(children: (C | null)[]): void {
-		this._dirty = true;
-		this._children = children;
-		this.emit({
-			type: 'widget:children',
-			target: this
-		});
+		if (this._children.length || children.length) {
+			this._dirty = true;
+			this._children = children;
+			this.emit({
+				type: 'widget:children',
+				target: this
+			});
+		}
 	}
 
-	public __render__(): VNode | string | null {
+	public __render__(): (VNode | string | null)[] | VNode | string | null {
 		this._renderState = WidgetRenderState.RENDER;
 		if (this._dirty || !this._cachedVNode) {
 			this._dirty = false;
@@ -464,11 +446,21 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 				return beforeRenderFunction.call(this, render, this._properties, this._children);
 			}, this.render.bind(this));
 
+			this._requiredNodes.forEach((element, key) => {
+				if (!this._nodeMap.has(key)) {
+					throw new Error(`Required node ${key} not found`);
+				}
+			});
+			this._requiredNodes.clear();
+
 			let dNode = render();
 			const afterRenders = this.getDecorator('afterRender');
 			afterRenders.forEach((afterRenderFunction: Function) => {
 				dNode = afterRenderFunction.call(this, dNode);
 			});
+
+			this._nodeMap.clear();
+
 			const widget = this.dNodeToVNode(dNode);
 			this.manageDetachedChildren();
 			if (widget) {
@@ -481,8 +473,8 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 		return this._cachedVNode;
 	}
 
-	public invalidate(force?: boolean): void {
-		if (this._renderState === WidgetRenderState.IDLE || force) {
+	public invalidate(): void {
+		if (this._renderState === WidgetRenderState.IDLE) {
 			this._dirty = true;
 			this.emit({
 				type: 'invalidated',
@@ -494,7 +486,7 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 		}
 	}
 
-	protected render(): DNode {
+	protected render(): DNode | DNode[] {
 		return v('div', {}, this.children);
 	}
 
@@ -579,10 +571,9 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 	 *
 	 * @param properties properties to check for functions
 	 */
-	private bindFunctionProperties(properties: P & { [index: string]: any }): void {
+	private bindFunctionProperties(properties: any, bind: any): void {
 		Object.keys(properties).forEach((propertyKey) => {
 			const property = properties[propertyKey];
-			const bind = properties.bind;
 
 			if (typeof property === 'function' && !isWidgetBaseConstructor(property)) {
 				const bindInfo = this._bindFunctionPropertyMap.get(property) || {};
@@ -607,10 +598,16 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 	 * @param dNode the dnode to process
 	 * @returns a VNode, string or null
 	 */
-	private dNodeToVNode(dNode: DNode): VNode | string | null {
+	private dNodeToVNode(dNode: DNode): VNode | string | null;
+	private dNodeToVNode(dNode: DNode[]): (VNode | string | null)[];
+	private dNodeToVNode(dNode: DNode | DNode[]): (VNode | string | null)[] | VNode | string | null {
 
 		if (typeof dNode === 'string' || dNode === null) {
 			return dNode;
+		}
+
+		if (Array.isArray(dNode)) {
+			return dNode.map((node) => this.dNodeToVNode(node));
 		}
 
 		if (isWNode(dNode)) {
@@ -648,21 +645,25 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 				child = new widgetConstructor();
 				child.__setProperties__(properties);
 				child.own(child.on('invalidated', () => {
-					this.invalidate(true);
+					this.invalidate();
 				}));
 				cachedChildren = [...cachedChildren, { child, widgetConstructor, used: true }];
 				this._cachedChildrenMap.set(childrenMapKey, cachedChildren);
 				this.own(child);
 			}
-			if (!key && cachedChildren.length > 1) {
-				const errorMsg = 'It is recommended to provide a unique `key` property when using the same widget multiple times';
+			if (typeof childrenMapKey !== 'string' && cachedChildren.length > 1) {
+				const widgetName = (<any> childrenMapKey).name;
+				let errorMsg = 'It is recommended to provide a unique \'key\' property when using the same widget multiple times';
+
+				if (widgetName) {
+					errorMsg = `It is recommended to provide a unique 'key' property when using the same widget (${widgetName}) multiple times`;
+				}
+
 				console.warn(errorMsg);
 				this.emit({ type: 'error', target: this, error: new Error(errorMsg) });
 			}
 
-			if (Array.isArray(children)) {
-				child.__setChildren__(children);
-			}
+			child.__setChildren__(children);
 			return child.__render__();
 		}
 
@@ -711,6 +712,16 @@ export class WidgetBase<P extends WidgetProperties = WidgetProperties, C extends
 			});
 			this._cachedChildrenMap.set(key, filterCachedChildren);
 		});
+	}
+
+	private _checkOnElementUsage() {
+		const name = (<any> this).constructor.name || 'unknown';
+		if (this.onElementCreated !== WidgetBase.prototype.onElementCreated) {
+			console.warn(`Usage of 'onElementedCreated' has been deprecated and will be removed in a future version, see https://github.com/dojo/widget-core/issues/559 for details (${name})`);
+		}
+		if (this.onElementUpdated !== WidgetBase.prototype.onElementUpdated) {
+			console.warn(`Usage of 'onElementUpdated' has been deprecated and will be removed in a future version, see https://github.com/dojo/widget-core/issues/559 for details (${name})`);
+		}
 	}
 }
 
