@@ -41,6 +41,12 @@ enum WidgetRenderState {
 	RENDER
 }
 
+interface DeferredProperty {
+	object: 'properties' | 'styles';
+	propertyName: string;
+	callback: () => any;
+}
+
 interface ReactionFunctionArguments {
 	previousProperties: any;
 	newProperties: any;
@@ -185,6 +191,8 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 
 	private _requiredNodes = new Set<string>();
 
+	private _deferredProperties = new Map<string, DeferredProperty[]>();
+
 	/**
 	 * @constructor
 	 */
@@ -218,6 +226,12 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 		}
 
 		return cached as T;
+	}
+
+	@beforeRender()
+	protected clearDeferredProperties(renderFunction: any, properties: any, children: DNode[]): any {
+		this._deferredProperties.clear();
+		return renderFunction;
 	}
 
 	/**
@@ -269,6 +283,21 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 		return node;
 	}
 
+	protected applyDeferredProperties(element: any, properties: VNodeProperties) {
+		const key = properties.key;
+		const deferredProperties = this._deferredProperties;
+		if (typeof key === 'string' && deferredProperties.has(key)) {
+			(deferredProperties.get(key) || []).forEach(({ object, propertyName, callback }) => {
+				if (object === 'properties') {
+					element[propertyName] = callback.call(this);
+				}
+				if (object === 'styles') {
+					element.style[propertyName] = callback.call(this);
+				}
+			});
+		}
+	}
+
 	/**
 	 * vnode afterCreate callback that calls the onElementCreated lifecycle method.
 	 */
@@ -279,6 +308,7 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 		properties: VNodeProperties
 	): void {
 		this._setNode(element, properties);
+		this.applyDeferredProperties(element, properties);
 		this.onElementCreated(element, String(properties.key));
 	}
 
@@ -292,6 +322,7 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 		properties: VNodeProperties
 	): void {
 		this._setNode(element, properties);
+		this.applyDeferredProperties(element, properties);
 		this.onElementUpdated(element, String(properties.key));
 	}
 
@@ -652,7 +683,48 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 			return this._dNodeToVNode(child);
 		});
 
+		this._prepareDeferredProperties(dNode);
+
 		return dNode.render();
+	}
+
+	private _prepareDeferredProperties(node: DNode) {
+		if (isHNode(node)) {
+			const {
+				properties = {},
+				properties: {
+					key,
+					styles = {}
+				}
+			} = node;
+
+			if (typeof key === 'string') {
+				const deferredProperties = this._deferredProperties.get(key) || [];
+				[ 'scrollTop' ].forEach(propertyName => {
+					const callback = properties[propertyName];
+					if (typeof callback === 'function') {
+						deferredProperties.push({
+							callback,
+							object: 'properties',
+							propertyName
+						});
+						delete (<any> properties)[propertyName]; // cast to any to delete read-only property
+					}
+				});
+				Object.keys(styles).forEach(propertyName => {
+					const callback = styles[propertyName];
+					if (typeof callback === 'function') {
+						deferredProperties.push({
+							callback,
+							object: 'styles',
+							propertyName
+						});
+						delete styles[propertyName];
+					}
+				});
+				this._deferredProperties.set(key, deferredProperties);
+			}
+		}
 	}
 
 	/**
