@@ -4,7 +4,7 @@ import Set from '@dojo/shim/Set';
 import { WidgetMetaProperties } from '../interfaces';
 
 export class Base {
-	private _invalidate: () => void;
+	private _invalidate: (force?: boolean) => void;
 	private _invalidating: number;
 	private _requiredNodes: Set<string>;
 	protected nodes: Map<string, HTMLElement>;
@@ -30,7 +30,7 @@ export class Base {
 		this._requiredNodes.add(key);
 
 		if (!this.nodes.has(key)) {
-			this.invalidate();
+			this._invalidate(true);
 		}
 	}
 }
