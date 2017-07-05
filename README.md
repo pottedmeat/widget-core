@@ -1154,6 +1154,23 @@ class IsTallMeta extends MetaBase {
 }
 ```
 
+##### Responding to Meta Invalidation
+
+By default, meta `invalidate` calls trigger widget invalidation. This behavior can be intercepted using the `onMetaInvalidate` decorator to take responsibility for widget invalidation.
+
+The `onMetaInvalidate` call receives the `MetaType` class object and takes on responsibility for widget invalidation.
+
+```ts
+class MyBaseClass extends WidgetBase<WidgetProperties> {
+	@onMetaInvalidate(Intersection)
+	onIntersectionInvalidate(MetaType: Dimensions | Intersection): void {
+		if (MetaType === Dimensions) {
+		    this.invalidate();
+		}
+	}
+}
+```
+
 #### DomWrapper
 
 `DomWrapper` is used to wrap DOM that is created _outside_ of the virtual DOM system.  This is the main mechanism to integrate _foreign_ components or widgets into the virtual DOM system.

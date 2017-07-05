@@ -15,13 +15,11 @@ import 'intersection-observer';
  */
 export interface IntersectionOptions {
 	/** default true */
-	invalidate?: boolean;
 	root?: string;
 }
 
 interface IntersectionDetails {
 	entries: WeakMap<Element, IntersectionObserverEntry>;
-	invalidate: WeakMap<Element, boolean>;
 }
 
 export class Intersection extends MetaBase {
@@ -32,14 +30,11 @@ export class Intersection extends MetaBase {
 		const details = this._details.get(observer);
 		entries.forEach((entry) => {
 			details.entries.set(entry.target, entry);
-			/* istanbul ignore else: only invalidate if enabled */
-			if (details.invalidate.has(entry.target)) {
-				this.invalidate();
-			}
+			this.invalidate();
 		});
 	}
 
-	public get(key: string, { invalidate = true, root = '' }: IntersectionOptions = {}): number {
+	public get(key: string, { root = '' }: IntersectionOptions = {}): number {
 		let rootObserver = this._roots.get(root);
 		if (!rootObserver) {
 			const intersectionOptions: IntersectionObserverInit = {
@@ -60,8 +55,7 @@ export class Intersection extends MetaBase {
 			if (rootObserver) {
 				this._roots.set(root, rootObserver);
 				this._details.set(rootObserver, {
-					entries: new WeakMap<Element, IntersectionObserverEntry>(),
-					invalidate: new WeakMap<Element, boolean>()
+					entries: new WeakMap<Element, IntersectionObserverEntry>()
 				});
 			}
 		}
@@ -71,7 +65,6 @@ export class Intersection extends MetaBase {
 			const node = this.nodes.get(key);
 			if (node) {
 				const details = this._details.get(rootObserver);
-				details.invalidate.set(node, invalidate);
 				if (details.entries.has(node)) {
 					return details.entries.get(node).intersectionRatio;
 				}
