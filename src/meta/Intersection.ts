@@ -69,6 +69,9 @@ export class Intersection extends MetaBase {
 					return details.entries.get(node).intersectionRatio;
 				}
 				rootObserver.observe(node);
+				if (typeof (<any> rootObserver)._checkForIntersections === 'function') {
+					(<any> rootObserver)._checkForIntersections();
+				}
 			}
 		}
 
