@@ -29,7 +29,6 @@ export class Intersection extends MetaBase {
 	private _onIntersect(entries: IntersectionObserverEntry[], observer: IntersectionObserver) {
 		const details = this._details.get(observer);
 		entries.forEach((entry) => {
-			console.log('intersection', entry.target);
 			details.entries.set(entry.target, entry);
 			this.invalidate();
 		});
@@ -69,7 +68,6 @@ export class Intersection extends MetaBase {
 				if (details.entries.has(node)) {
 					return details.entries.get(node).intersectionRatio;
 				}
-				console.log('observing', key);
 				rootObserver.observe(node);
 			}
 		}
