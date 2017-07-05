@@ -3,6 +3,7 @@ import { EventTypedObject } from '@dojo/interfaces/core';
 import { VNode, VNodeProperties, ProjectionOptions } from '@dojo/interfaces/vdom';
 import Map from '@dojo/shim/Map';
 import Set from '@dojo/shim/Set';
+import MetaBase from './meta/Base';
 
 /**
  * Generic constructor type
@@ -309,6 +310,10 @@ export interface DiffPropertyFunction {
 
 export interface DiffPropertyReaction {
 	(previousProperties: any, newProperties: any): void;
+}
+
+export interface MetaInvalidateReaction {
+	<T extends MetaBase>(MetaType: WidgetMetaConstructor<T>): void;
 }
 
 /**

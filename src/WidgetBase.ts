@@ -13,6 +13,7 @@ import {
 	DiffPropertyReaction,
 	DNode,
 	HNode,
+	MetaInvalidateReaction,
 	RegistryLabel,
 	Render,
 	VirtualDomNode,
@@ -47,6 +48,11 @@ interface DeferredProperty {
 	callback: () => any;
 }
 
+interface MetaInvalidateFunctionConfig {
+	MetaType: WidgetMetaConstructor<MetaBase>;
+	invalidate: MetaInvalidateReaction;
+}
+
 interface ReactionFunctionArguments {
 	previousProperties: any;
 	newProperties: any;
@@ -79,6 +85,21 @@ export function beforeRender(): (target: any, propertyKey: string) => void;
 export function beforeRender(method?: Function) {
 	return handleDecorator((target, propertyKey) => {
 		target.addDecorator('beforeRender', propertyKey ? target[propertyKey] : method);
+	});
+}
+
+/**
+ * Decorator that can be used to register a function as a specific meta invalidation
+ *
+ * @param MetaType            The meta type that will trigger the invalidation
+ * @param invalidateFunction  A function to run when this meta type triggers an invalidate
+ */
+export function onMetaInvalidate<T extends MetaBase>(MetaType: WidgetMetaConstructor<T>, invalidateFunction?: Function) {
+	return handleDecorator((target, propertyKey) => {
+		target.addDecorator('onMetaInvalidate', {
+			MetaType,
+			invalidate: propertyKey ? target[propertyKey] : invalidateFunction
+		});
 	});
 }
 
@@ -220,12 +241,26 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 			cached = new MetaType({
 				nodes: this._nodeMap,
 				requiredNodes: this._requiredNodes,
-				invalidate: this.invalidate.bind(this)
+				invalidate: this._metaInvalidate.bind(this, MetaType)
 			});
 			this._metaMap.set(MetaType, cached);
 		}
 
 		return cached as T;
+	}
+
+	private _metaInvalidate<T extends MetaBase>(MetaType: WidgetMetaConstructor<T>): void {
+		const metaInvalidateConfigs: MetaInvalidateFunctionConfig[] = this.getDecorator('onMetaInvalidate');
+		const matched = metaInvalidateConfigs.reduce((matched, { MetaType: CompareMetaType, invalidate }) => {
+			if (MetaType === CompareMetaType) {
+				matched = true;
+				invalidate.call(this, MetaType);
+			}
+			return matched;
+		}, false);
+		if (!matched) {
+			this.invalidate();
+		}
 	}
 
 	@beforeRender()
