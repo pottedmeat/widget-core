@@ -249,7 +249,7 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 		return cached as T;
 	}
 
-	private _metaInvalidate<T extends MetaBase>(MetaType: WidgetMetaConstructor<T>): void {
+	private _metaInvalidate<T extends MetaBase>(MetaType: WidgetMetaConstructor<T>, force?: boolean): void {
 		const metaInvalidateConfigs: MetaInvalidateFunctionConfig[] = this.getDecorator('onMetaInvalidate');
 		const matched = metaInvalidateConfigs.reduce((matched, { MetaType: CompareMetaType, invalidate }) => {
 			if (MetaType === CompareMetaType) {
@@ -258,7 +258,7 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 			}
 			return matched;
 		}, false);
-		if (!matched) {
+		if (force || !matched) {
 			this.invalidate();
 		}
 	}
