@@ -369,12 +369,16 @@ export interface WidgetMetaConstructor<T> {
 	new (properties: WidgetMetaProperties): T;
 }
 
+export interface WidgetMetaRequiredNode {
+	(node: Element): void;
+}
+
 /**
  * Properties passed to meta Base constructors
  */
 export interface WidgetMetaProperties {
 	nodes: Map<string, HTMLElement>;
-	requiredNodes: Set<string>;
+	requiredNodes: Map<string, WidgetMetaRequiredNode[]>;
 	invalidate: () => void;
 }
 

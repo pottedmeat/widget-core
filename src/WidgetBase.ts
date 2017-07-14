@@ -20,7 +20,8 @@ import {
 	WidgetMetaConstructor,
 	WidgetBaseConstructor,
 	WidgetBaseInterface,
-	WidgetProperties
+	WidgetProperties,
+	WidgetMetaRequiredNode
 } from './interfaces';
 import MetaBase from './meta/Base';
 import RegistryHandler from './RegistryHandler';
@@ -210,7 +211,7 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 
 	private _nodeMap = new Map<string, HTMLElement>();
 
-	private _requiredNodes = new Set<string>();
+	private _requiredNodes = new Map<string, WidgetMetaRequiredNode[]>();
 
 	private _deferredProperties = new Map<string, DeferredProperty[]>();
 
@@ -276,7 +277,7 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 	@beforeRender()
 	protected verifyRequiredNodes(renderFunc: () => DNode, properties: WidgetProperties, children: DNode[]): () => DNode {
 		return () => {
-			this._requiredNodes.forEach((element, key) => {
+			this._requiredNodes.forEach((callback, key) => {
 				if (!this._nodeMap.has(key)) {
 					throw new Error(`Required node ${key} not found`);
 				}
@@ -384,7 +385,14 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 	}
 
 	private _setNode(element: Element, properties: VNodeProperties): void {
-		this._nodeMap.set(String(properties.key), <HTMLElement> element);
+		const key = String(properties.key);
+		const callbacks = this._requiredNodes.get(key);
+		if (callbacks) {
+			for (const callback of callbacks) {
+				callback.call(this, element);
+			}
+		}
+		this._nodeMap.set(key, <HTMLElement> element);
 	}
 
 	public get properties(): Readonly<P> & Readonly<WidgetProperties> {
@@ -397,6 +405,9 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 		const allProperties = new Set([...Object.keys(properties), ...Object.keys(this._properties)]);
 		const diffPropertyResults: any = {};
 
+		if ((<any> this)._logState) {
+			console.log('state PROPERTIES');
+		}
 		this._renderState = WidgetRenderState.PROPERTIES;
 		this._bindFunctionProperties(properties, bind);
 
@@ -438,6 +449,9 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 	}
 
 	public __setChildren__(children: (C | null)[]): void {
+		if ((<any> this)._logState) {
+			console.log('state CHILDREN');
+		}
 		this._renderState = WidgetRenderState.CHILDREN;
 		if (this._children.length || children.length) {
 			this._children = children;
@@ -446,6 +460,9 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 	}
 
 	public __render__(): VirtualDomNode | VirtualDomNode[] {
+		if ((<any> this)._logState) {
+			console.log('state RENDER');
+		}
 		this._renderState = WidgetRenderState.RENDER;
 		if (this._dirty || !this._cachedVNode) {
 			this._dirty = false;
@@ -457,8 +474,14 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 			if (widget) {
 				this._cachedVNode = widget;
 			}
+			if ((<any> this)._logState) {
+				console.log('state IDLE rendered');
+			}
 			this._renderState = WidgetRenderState.IDLE;
 			return widget;
+		}
+		if ((<any> this)._logState) {
+			console.log('state IDLE');
 		}
 		this._renderState = WidgetRenderState.IDLE;
 		return this._cachedVNode;
@@ -477,6 +500,12 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 		}
 		else if (this._renderState === WidgetRenderState.CHILDREN) {
 			this._dirty = true;
+		}
+		else if (this._renderState === WidgetRenderState.RENDER) {
+			console.log('invalidate RENDER');
+		}
+		else {
+			console.log('invalidate', this._renderState);
 		}
 	}
 

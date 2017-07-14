@@ -1,14 +1,13 @@
 import global from '@dojo/core/global';
 import Map from '@dojo/shim/Map';
-import Set from '@dojo/shim/Set';
-import { WidgetMetaProperties } from '../interfaces';
+import { WidgetMetaProperties, WidgetMetaRequiredNode } from '../interfaces';
 
 export class Base {
 	private _invalidate: (force?: boolean) => void;
 	private _boundInvalidate: () => void;
 	private _forceInvalidate: () => void;
 	private _invalidating: number;
-	private _requiredNodes: Set<string>;
+	private _requiredNodes: Map<string, WidgetMetaRequiredNode[]>;
 	protected nodes: Map<string, HTMLElement>;
 
 	constructor(properties: WidgetMetaProperties) {
@@ -33,10 +32,18 @@ export class Base {
 		this._invalidating = global.requestAnimationFrame(force ? this._forceInvalidate : this._boundInvalidate);
 	}
 
-	protected requireNode(key: string): void {
-		if (!this.nodes.has(key)) {
-			this._requiredNodes.add(key);
-			this.invalidate(true);
+	protected requireNode(key: string, callback?: WidgetMetaRequiredNode): void {
+		const node = this.nodes.get(key);
+		if (node) {
+			callback && callback.call(this, node);
+		}
+		else {
+			const callbacks: WidgetMetaRequiredNode[] = this._requiredNodes.get(key) || [];
+			callback && callbacks.push(callback);
+			this._requiredNodes.set(key, callbacks);
+			if (callback === undefined) {
+				this.invalidate(true);
+			}
 		}
 	}
 }
