@@ -90,21 +90,6 @@ export function beforeRender(method?: Function) {
 }
 
 /**
- * Decorator that can be used to register a function as a specific meta invalidation
- *
- * @param MetaType            The meta type that will trigger the invalidation
- * @param invalidateFunction  A function to run when this meta type triggers an invalidate
- */
-export function onMetaInvalidate<T extends MetaBase>(MetaType: WidgetMetaConstructor<T>, invalidateFunction?: Function) {
-	return handleDecorator((target, propertyKey) => {
-		target.addDecorator('onMetaInvalidate', {
-			MetaType,
-			invalidate: propertyKey ? target[propertyKey] : invalidateFunction
-		});
-	});
-}
-
-/**
  * Decorator that can be used to register a function as a specific property diff
  *
  * @param propertyName  The name of the property of which the diff function is applied

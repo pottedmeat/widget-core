@@ -23,7 +23,7 @@ export class Base {
 		this.nodes = properties.nodes;
 	}
 
-	public has(key: string): boolean {
+	public has(key: string, ...args: any[]): boolean {
 		return this.nodes.has(key);
 	}
 

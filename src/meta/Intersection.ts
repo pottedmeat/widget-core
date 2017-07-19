@@ -1,215 +1,234 @@
 import global from '@dojo/core/global';
-import { from } from '@dojo/shim/array';
-import Map from '@dojo/shim/Map';
-import Set from '@dojo/shim/Set';
 import WeakMap from '@dojo/shim/WeakMap';
 import MetaBase from '../meta/Base';
 
 import 'intersection-observer';
 
-export const enum IntersectionWatchType {
-	LESS_THAN,
-	GREATER_THAN,
-	WITHIN,
-	OUTSIDE,
-	NEVER,
-	STEP,
-	THRESHOLDS,
-	ANY
-}
-
-interface IntersectionWatchOptions {
-	key: string;
-	thresholds: number[];
-	type: IntersectionWatchType;
-}
-
-interface IntersectionDetails {
+interface IntersectionDetail {
+	callback?: IntersectionMetaCallback;
 	entries: WeakMap<Element, IntersectionObserverEntry>;
-	observer?: IntersectionObserver;
-	observerThresholds: Set<number>;
-	thresholds: Set<number>;
-	watches: IntersectionWatchOptions[];
+	intersections: { [key: string]: number }; // previous intersections
+	intersectionObserver?: IntersectionObserver; // attached observer
+	keys: { [key: string]: number }; // subscribed keys and their counts
+	observer: IntersectionMetaObserver;
+	root: string;
+	rootMargin?: string;
+	thresholds: number[]; // thresholds the observe should be attached with
+}
+
+export interface IntersectionMetaCallback {
+	(intersectionEntries: IntersectionMetaEntry[], observer: IntersectionMetaObserver): void;
+}
+
+export interface IntersectionMetaEntry {
+	key: string;
+	previousIntersectionRatio: number;
+	intersectionRatio: number;
+}
+
+export interface IntersectionMetaOptions {
+	root?: string;
+	rootMargin?: string;
+	step?: number;
+	threshold?: number;
+	thresholds?: number[];
+}
+
+export interface IntersectionMetaObserver {
+	subscribe(key: string): void;
+	unsubscribe(key: string): void;
 }
 
 export class Intersection extends MetaBase {
-	private _roots = new Map<string, IntersectionDetails>();
-	private _observers = new WeakMap<IntersectionObserver, string>();
+	private _observers = new WeakMap<IntersectionMetaObserver, IntersectionDetail>();
+	private _intersectionObservers = new WeakMap<IntersectionObserver, IntersectionDetail>();
 
-	private _onIntersect(entries: IntersectionObserverEntry[], observer: IntersectionObserver) {
-		if (this._observers.has(observer)) {
-			const root = this._observers.get(observer);
-			const details = this._roots.get(root);
-			if (details) {
-				entries.forEach((entry) => {
-					details.entries.set(entry.target, entry);
-					const ratio = entry.intersectionRatio;
-					for (const watch of details.watches) {
-						if (this.nodes.get(watch.key) === entry.target) {
-							if (watch.type === IntersectionWatchType.WITHIN) {
-								if (ratio > 0) {
-									this.invalidate();
-								}
-							}
-							else if (watch.type === IntersectionWatchType.ANY) {
-								this.invalidate();
-							}
-						}
-					}
-				});
-			}
-		}
-	}
-
-	private _observe(observer: IntersectionObserver, node: Element) {
-		observer.observe(node);
-		if (typeof (<any> observer)._checkForIntersections === 'function') {
-			(<any> observer)._checkForIntersections();
-		}
-	}
-
-	private _getObserver(root: string, rootNode?: Element): IntersectionObserver {
-		let details = this._roots.get(root);
-		if (!details) {
-			details = {
-				entries: new WeakMap<Element, IntersectionObserverEntry>(),
-				observerThresholds: new Set<number>(),
-				thresholds: new Set<number>(),
-				watches: []
-			};
-			this._roots.set(root, details);
+	private _getIntersectionObserver(details: IntersectionDetail, rootNode?: Element): IntersectionObserver {
+		if (details.intersectionObserver) {
+			return details.intersectionObserver;
 		}
 
-		const observer = details.observer;
-		if (observer) {
-			const union = new Set(details.thresholds);
-			for (const threshold of from(details.observerThresholds.values())) {
-				union.add(threshold);
-			}
-			if (union.size !== details.thresholds.size || union.size !== observer.thresholds.length) {
-				console.log('thresholds differ and the observer needs to be re-established');
-				observer.disconnect();
-				delete details.observer;
+		const {
+			rootMargin = '0px',
+			thresholds
+		} = details;
 
-				const rootObserver = this._getObserver(root, rootNode);
-				for (const watch of details.watches) {
-					this.requireNode(watch.key, this._observe.bind(this, rootObserver));
-				}
-			}
-		}
-
-		const thresholds = details.thresholds;
 		const options: IntersectionObserverInit = {
-			rootMargin: '0px',
-			threshold: from(thresholds.values())
+			rootMargin,
+			threshold: thresholds.length ? thresholds : 0.000001
 		};
 		if (rootNode) {
 			options.root = rootNode;
 		}
-		const rootObserver = new global.IntersectionObserver(this._onIntersect.bind(this), options);
-		details.observer = rootObserver;
-		this._observers.set(rootObserver, root);
-		return rootObserver;
+		console.log('Intersection._getIntersectionObserver', details.root, options);
+		const observer = new global.IntersectionObserver(this._onIntersect.bind(this), options);
+		details.intersectionObserver = observer;
+		this._intersectionObservers.set(observer, details);
+		return observer;
 	}
 
-	public watch(key: string, watchType: IntersectionWatchType, root: string, thresholds?: number | number[]): void;
-	public watch(key: string, watchType: IntersectionWatchType, root: string): void;
-	public watch(key: string, watchType: IntersectionWatchType, thresholds: number | number[]): void;
-	public watch(key: string, watchType: IntersectionWatchType, ...args: any[]): void {
-		let root = '';
-		let thresholds: number[] = [];
-		if (args.length === 2) {
-			root = args[0];
-			thresholds = args[1];
-		}
-		else if (args.length === 1) {
-			if (typeof args[0] === 'string') {
-				root = args[0];
-			}
-			else {
-				thresholds = args[0];
-			}
-		}
-		if (typeof thresholds === 'number') {
-			thresholds = [ thresholds ];
-		}
-		if (thresholds.length === 0) {
-			thresholds.push(0.001);
-		}
-
-		let details = this._roots.get(root);
-		if (!details) {
-			details = {
-				entries: new WeakMap<Element, IntersectionObserverEntry>(),
-				observerThresholds: new Set<number>(),
-				thresholds: new Set<number>(),
-				watches: []
-			};
-			this._roots.set(root, details);
-		}
-
-		for (const ratio of thresholds) {
-			details.thresholds.add(ratio);
-		}
-
-		let found: undefined | IntersectionWatchOptions = undefined;
-		for (const watch of details.watches) {
-			if (watch.key === key) {
-				found = watch;
-				break;
-			}
-		}
-		if (found) {
-			found.type = watchType;
-			found.thresholds = thresholds;
-		}
-		else {
-			details.watches.push({
-				key,
-				thresholds,
-				type: watchType
-			});
-		}
-
-		this._establish(key, root);
+	private _subscribe(detail: IntersectionDetail, key?: string) {
+		this._ubscribe(detail, key);
 	}
 
-	private _establish(key: string, root: string) {
-		if (root) {
-			this.requireNode(root, (rootNode) => {
-				this.requireNode(key, (node) => {
-					this._observe(this._getObserver(root, rootNode), node);
-				});
-			});
-		}
-		else {
-			this.requireNode(key, (node) => {
-				this._observe(this._getObserver(root), node);
-			});
-		}
+	private _unsubscribe(detail: IntersectionDetail, key: string) {
+		this._ubscribe(detail, key, true);
 	}
 
-	public get(key: string, root: string = ''): number {
-		let details = this._roots.get(root);
-		if (!details) {
-			this._establish(key, root);
+	private _ubscribe(detail: IntersectionDetail, key?: string, unsubscribe = false): void {
+		const {
+			keys,
+			root
+		} = detail;
+
+		if (key) {
+			keys[key] = (keys[key] || 0) + 1;
 		}
-		else {
+
+		const withIntersectionObserver = key ? (intersectionObserver: IntersectionObserver) => {
 			const node = this.nodes.get(key);
 			if (node) {
-				if (details.observer) {
-					const entries = details.observer.takeRecords();
-					if (entries.length) {
-						this._onIntersect(entries, details.observer);
+				this._observe(intersectionObserver, node, unsubscribe);
+			}
+			else {
+				this.requireNode(key, (node) => {
+					this._observe(intersectionObserver, node, unsubscribe);
+				});
+			}
+		} : undefined;
+
+		if (root) {
+			const withRootNode = (rootNode: Element) => {
+				const intersectionObserver = this._getIntersectionObserver(detail, rootNode);
+				withIntersectionObserver && withIntersectionObserver(intersectionObserver);
+			};
+
+			const rootNode = this.nodes.get(root);
+			if (rootNode) {
+				withRootNode(rootNode);
+			}
+			else {
+				this.requireNode(root, withRootNode);
+			}
+		}
+		else {
+			const intersectionObserver = this._getIntersectionObserver(detail);
+			withIntersectionObserver && withIntersectionObserver(intersectionObserver);
+		}
+	}
+
+	private _observe(observer: IntersectionObserver, node: Element, unsubscribe = false) {
+		if (unsubscribe) {
+			observer.unobserve(node);
+		}
+		else {
+			observer.observe(node);
+			if (typeof (<any> observer)._checkForIntersections === 'function') {
+				(<any> observer)._checkForIntersections();
+			}
+		}
+	}
+
+	private _onIntersect(intersectionObserverEntries: IntersectionObserverEntry[], intersectionObserver: IntersectionObserver) {
+		if (this._intersectionObservers.has(intersectionObserver)) {
+			const details = this._intersectionObservers.get(intersectionObserver);
+			if (details) {
+				const intersectionDetails: IntersectionMetaEntry[] = [];
+				for (const intersectionEntry of intersectionObserverEntries) {
+					details.entries.set(intersectionEntry.target, intersectionEntry);
+					const intersectionRatio = intersectionEntry.intersectionRatio;
+					for (const key in details.keys) {
+						if (this.nodes.get(key) === intersectionEntry.target) {
+							const previousIntersectionRatio = details.intersections[key] || 0;
+							details.intersections[key] = intersectionRatio;
+							intersectionDetails.push({
+								intersectionRatio,
+								key,
+								previousIntersectionRatio
+							});
+						}
 					}
 				}
-				if (details.entries.has(node)) {
-					return details.entries.get(node).intersectionRatio;
+				details.callback && details.callback(intersectionDetails, details.observer);
+			}
+		}
+	}
+
+	public has(key: string, observer: IntersectionMetaObserver): boolean {
+		const details = this._observers.get(observer);
+		return (details ? typeof details.intersections[key] === 'number' : false);
+	}
+
+	public get(key: string, observer: IntersectionMetaObserver): number {
+		const details = this._observers.get(observer);
+		if (details) {
+			const intersectionObserver = details.intersectionObserver;
+			if (intersectionObserver) {
+				const entries = intersectionObserver.takeRecords();
+				if (entries.length) {
+					this._onIntersect(entries, intersectionObserver);
 				}
+			}
+			if (typeof details.intersections[key] === 'number') {
+				return details.intersections[key];
 			}
 		}
 
 		return 0;
+	}
+
+	public observe(callback: IntersectionMetaCallback, { root = '', rootMargin = '0px', step, threshold, thresholds = [] }: IntersectionMetaOptions = {}): IntersectionMetaObserver {
+		if (typeof step === 'number') {
+			thresholds.length = 0;
+			const steps = Math.floor(1 / step);
+			for (let i = 0; i <= steps; i ++) {
+				thresholds.push(step * i);
+			}
+		}
+		if (typeof threshold === 'number') {
+			thresholds = [ threshold ];
+		}
+		const keys: { [key: string]: number } = {};
+
+		const observer: IntersectionMetaObserver = {
+			subscribe: (key: string): void => {
+				this._subscribe(details, key);
+			},
+			unsubscribe: (key: string): void => {
+				const count = (keys[key] || 0) - 1;
+				if (count > 0) {
+					keys[key] = count;
+				}
+				else {
+					delete keys[key];
+					this._unsubscribe(details, key);
+				}
+			}
+		};
+
+		const details: IntersectionDetail = {
+			callback,
+			entries: new WeakMap<Element, IntersectionObserverEntry>(),
+			intersections: {},
+			keys,
+			observer,
+			root,
+			rootMargin,
+			thresholds
+		};
+
+		if (root) {
+			this.requireNode(root, (rootNode) => {
+				this._getIntersectionObserver(details, rootNode);
+			});
+		}
+		else {
+			this._getIntersectionObserver(details);
+		}
+
+		this._observers.set(observer, details);
+
+		return observer;
 	}
 }
 
