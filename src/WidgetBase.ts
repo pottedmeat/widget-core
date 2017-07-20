@@ -487,10 +487,10 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 			this._dirty = true;
 		}
 		else if (this._renderState === WidgetRenderState.RENDER) {
-			console.log('invalidate RENDER');
+			// console.log('invalidate RENDER');
 		}
 		else {
-			console.log('invalidate', this._renderState);
+			// console.log('invalidate', this._renderState);
 		}
 	}
 

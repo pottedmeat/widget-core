@@ -60,7 +60,7 @@ export class Intersection extends MetaBase {
 		if (rootNode) {
 			options.root = rootNode;
 		}
-		console.log('Intersection._getIntersectionObserver', details.root, options);
+		// console.log('Intersection._getIntersectionObserver', details.root, options);
 		const observer = new global.IntersectionObserver(this._onIntersect.bind(this), options);
 		details.intersectionObserver = observer;
 		this._intersectionObservers.set(observer, details);
