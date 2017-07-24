@@ -85,7 +85,7 @@ export class Intersection extends MetaBase<number, IntersectionMetaOptions> {
 		return observer;
 	}
 
-	private _getObserver(key: string, callback: (intersectionObserver: IntersectionObserver, node: Element) => void) {
+	private _withIntersectionObserver(key: string, callback: (intersectionObserver: IntersectionObserver, node: Element) => void) {
 		const {
 			root
 		} = this._getDetails();
@@ -149,7 +149,7 @@ export class Intersection extends MetaBase<number, IntersectionMetaOptions> {
 			return;
 		}
 		details.keys.add(key);
-		this._getObserver(key, (intersectionObserver, node) => {
+		this._withIntersectionObserver(key, (intersectionObserver, node) => {
 			intersectionObserver.observe(node);
 			if (typeof (<any> intersectionObserver)._checkForIntersections === 'function') {
 				(<any> intersectionObserver)._checkForIntersections();
@@ -158,7 +158,7 @@ export class Intersection extends MetaBase<number, IntersectionMetaOptions> {
 	}
 
 	protected untrack(key: string): void {
-		this._getObserver(key, (intersectionObserver, node) => {
+		this._withIntersectionObserver(key, (intersectionObserver, node) => {
 			intersectionObserver.unobserve(node);
 		});
 	}
