@@ -1,5 +1,7 @@
 import { Evented } from '@dojo/core/Evented';
+import { assign } from '@dojo/core/lang';
 import { ProjectionOptions, VNodeProperties } from '@dojo/interfaces/vdom';
+import { from } from '@dojo/shim/array';
 import Map from '@dojo/shim/Map';
 import Promise from '@dojo/shim/Promise';
 import Set from '@dojo/shim/Set';
@@ -13,17 +15,20 @@ import {
 	DiffPropertyReaction,
 	DNode,
 	HNode,
-	MetaInvalidateReaction,
 	RegistryLabel,
 	Render,
 	VirtualDomNode,
 	WidgetMetaConstructor,
 	WidgetBaseConstructor,
 	WidgetBaseInterface,
+	WidgetMetaOptions,
 	WidgetProperties,
-	WidgetMetaRequiredNode
+	WidgetMetaRequiredNode,
+	WidgetMetaSubscriptionSingleCallback,
+	WidgetMetaSubscriptionMultiCallback
 } from './interfaces';
 import MetaBase from './meta/Base';
+import { MetaWithOptionsRef } from './meta/MetaWithOptions';
 import RegistryHandler from './RegistryHandler';
 import { isWidgetBaseConstructor, WIDGET_BASE_TYPE } from './WidgetRegistry';
 
@@ -49,11 +54,6 @@ interface DeferredProperty {
 	callback: () => any;
 }
 
-interface MetaInvalidateFunctionConfig {
-	MetaType: WidgetMetaConstructor<MetaBase>;
-	invalidate: MetaInvalidateReaction;
-}
-
 interface ReactionFunctionArguments {
 	previousProperties: any;
 	newProperties: any;
@@ -63,6 +63,12 @@ interface ReactionFunctionArguments {
 interface ReactionFunctionConfig {
 	propertyName: string;
 	reaction: DiffPropertyReaction;
+}
+
+interface MetaFunctionConfig<T extends MetaBase<any>> {
+	callback: WidgetMetaSubscriptionSingleCallback<T> | WidgetMetaSubscriptionMultiCallback<T>;
+	key: string;
+	MetaOrMetaWithOptions: WidgetMetaConstructor<T> | MetaWithOptionsRef<T, any>;
 }
 
 const decoratorMap = new Map<Function, Map<string, any[]>>();
@@ -77,6 +83,24 @@ export function afterRender(method?: Function) {
 		target.addDecorator('afterRender', propertyKey ? target[propertyKey] : method);
 	});
 }
+
+function meta<T extends MetaBase<any>>(MetaOrMetaWithOptions: WidgetMetaConstructor<T> | MetaWithOptionsRef<T, any>, key: 'ALL_KEYS', method?: WidgetMetaSubscriptionMultiCallback<any>): (target: any, propertyKey: string) => void;
+function meta<T extends MetaBase<any>>(MetaOrMetaWithOptions: WidgetMetaConstructor<T> | MetaWithOptionsRef<T, any>, key: string, method?: WidgetMetaSubscriptionSingleCallback<any>): (target: any, propertyKey: string) => void;
+function meta<T extends MetaBase<any>>(
+	MetaOrMetaWithOptions: WidgetMetaConstructor<T> | MetaWithOptionsRef<T, any>,
+	key: string,
+	method?: WidgetMetaSubscriptionSingleCallback<any> | WidgetMetaSubscriptionMultiCallback<any>
+) {
+	return handleDecorator((target, propertyKey) => {
+		target.addDecorator('meta', <MetaFunctionConfig<T>> {
+			callback: propertyKey ? target[propertyKey] : method,
+			key,
+			MetaOrMetaWithOptions
+		});
+	});
+}
+const metaWithProperties = assign(meta, { ALL_KEYS: 'ALL_KEYS' });
+export { metaWithProperties as meta };
 
 /**
  * Decorator that can be used to register a reducer function to run as an aspect before to `render`
@@ -192,7 +216,7 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 
 	private _renderState: WidgetRenderState = WidgetRenderState.IDLE;
 
-	private _metaMap = new WeakMap<WidgetMetaConstructor<any>, MetaBase>();
+	private _metaMap = new Map<WidgetMetaConstructor<any> | MetaWithOptionsRef<any, any>, MetaBase<any>>();
 
 	private _nodeMap = new Map<string, HTMLElement>();
 
@@ -216,37 +240,37 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 		this._registries = new RegistryHandler();
 		this._registries.add(registry);
 		this.own(this._registries);
+		const metaFunctions: MetaFunctionConfig<any>[] = this.getDecorator('meta');
+		metaFunctions.forEach((metaFunction) => {
+			this.meta(metaFunction.MetaOrMetaWithOptions).subscribe(metaFunction.key, metaFunction.callback.bind(this));
+		});
 
 		this.own(this._registries.on('invalidate', this.invalidate.bind(this)));
 		this._checkOnElementUsage();
 	}
 
-	protected meta<T extends MetaBase>(MetaType: WidgetMetaConstructor<T>): T {
-		let cached = this._metaMap.get(MetaType);
+	protected meta<T extends MetaBase<any>>(MetaOrMetaWithOptions: WidgetMetaConstructor<T> | MetaWithOptionsRef<T, any>): T {
+		let cached = this._metaMap.get(MetaOrMetaWithOptions);
 		if (!cached) {
+			let options: WidgetMetaOptions;
+			let MetaType: WidgetMetaConstructor<T>;
+			if (MetaOrMetaWithOptions instanceof MetaWithOptionsRef) {
+				options = (<any> MetaOrMetaWithOptions).options;
+				MetaType = (<any> MetaOrMetaWithOptions).MetaType;
+			}
+			else {
+				options = {};
+				MetaType = MetaOrMetaWithOptions;
+			}
 			cached = new MetaType({
 				nodes: this._nodeMap,
 				requiredNodes: this._requiredNodes,
-				invalidate: this._metaInvalidate.bind(this, MetaType)
-			});
-			this._metaMap.set(MetaType, cached);
+				invalidate: this.invalidate.bind(this)
+			}, options);
+			this._metaMap.set(MetaOrMetaWithOptions, cached);
 		}
 
 		return cached as T;
-	}
-
-	private _metaInvalidate<T extends MetaBase>(MetaType: WidgetMetaConstructor<T>, force?: boolean): void {
-		const metaInvalidateConfigs: MetaInvalidateFunctionConfig[] = this.getDecorator('onMetaInvalidate');
-		const matched = metaInvalidateConfigs.reduce((matched, { MetaType: CompareMetaType, invalidate }) => {
-			if (MetaType === CompareMetaType) {
-				matched = true;
-				invalidate.call(this, MetaType);
-			}
-			return matched;
-		}, false);
-		if (force || !matched) {
-			this.invalidate();
-		}
 	}
 
 	@beforeRender()
@@ -263,7 +287,7 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 	protected verifyRequiredNodes(renderFunc: () => DNode, properties: WidgetProperties, children: DNode[]): () => DNode {
 		return () => {
 			this._requiredNodes.forEach((callback, key) => {
-				if (!this._nodeMap.has(key)) {
+				if (!callback && !this._nodeMap.has(key)) {
 					throw new Error(`Required node ${key} not found`);
 				}
 			});
@@ -301,6 +325,25 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 		}, (node: DNode) => {
 			return isHNode(node) || isWNode(node);
 		});
+		return node;
+	}
+
+	@afterRender()
+	protected notifyMetaKeys(node: DNode | DNode[]): DNode | DNode[] {
+		if (this._metaMap.size > 0) {
+			const keys: string[] = [];
+			decorate(node, (node: any) => {
+				const { properties = {} }: { properties: { key?: string } } = node;
+				if (properties.key) {
+					keys.push(properties.key);
+				}
+			}, (node: DNode) => {
+				return isHNode(node) || isWNode(node);
+			});
+			for (const meta of from(this._metaMap.values())) {
+				meta.onKeysUpdated(keys);
+			}
+		}
 		return node;
 	}
 
@@ -376,6 +419,7 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 			for (const callback of callbacks) {
 				callback.call(this, element);
 			}
+			this._requiredNodes.delete(key);
 		}
 		this._nodeMap.set(key, <HTMLElement> element);
 	}

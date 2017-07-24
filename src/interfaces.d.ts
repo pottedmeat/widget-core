@@ -312,10 +312,6 @@ export interface DiffPropertyReaction {
 	(previousProperties: any, newProperties: any): void;
 }
 
-export interface MetaInvalidateReaction {
-	<T extends MetaBase>(MetaType: WidgetMetaConstructor<T>): void;
-}
-
 /**
  * WidgetBase constructor type
  */
@@ -365,12 +361,28 @@ export interface WidgetBaseInterface<
 /**
  * Meta Base constructor type
  */
-export interface WidgetMetaConstructor<T> {
-	new (properties: WidgetMetaProperties): T;
+export interface WidgetMetaConstructor<T extends MetaBase<any>, O extends WidgetMetaOptions = WidgetMetaOptions> {
+	new (properties: WidgetMetaProperties, options: O): T;
 }
 
 export interface WidgetMetaRequiredNode {
 	(node: Element): void;
+}
+
+export interface WidgetMetaOptions {}
+
+/**
+ * Callback used for a single key subscribe
+ */
+export interface WidgetMetaSubscriptionSingleCallback<T> {
+	(value: T): void;
+}
+
+/**
+ * Callback used for multi-key (meta.ALL_KEYS) subscribe
+ */
+export interface WidgetMetaSubscriptionMultiCallback<T> {
+	(value: Map<string, T>): void;
 }
 
 /**
