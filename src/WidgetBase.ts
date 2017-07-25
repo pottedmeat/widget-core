@@ -1,7 +1,6 @@
 import { Evented } from '@dojo/core/Evented';
 import { assign } from '@dojo/core/lang';
 import { ProjectionOptions, VNodeProperties } from '@dojo/interfaces/vdom';
-import { from } from '@dojo/shim/array';
 import Map from '@dojo/shim/Map';
 import Promise from '@dojo/shim/Promise';
 import Set from '@dojo/shim/Set';
@@ -222,7 +221,7 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 
 	private _requiredNodes = new Map<string, WidgetMetaRequiredNode[]>();
 
-	private _deferredProperties = new Map<string, DeferredProperty[]>();
+	private _deferredProperties: { [ key: string ]: DeferredProperty[] } = {};
 
 	/**
 	 * @constructor
@@ -275,7 +274,7 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 
 	@beforeRender()
 	protected clearDeferredProperties(renderFunction: any, properties: any, children: DNode[]): any {
-		this._deferredProperties.clear();
+		this._deferredProperties = {};
 		return renderFunction;
 	}
 
@@ -340,9 +339,9 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 			}, (node: DNode) => {
 				return isHNode(node) || isWNode(node);
 			});
-			for (const meta of from(this._metaMap.values())) {
+			this._metaMap.forEach((meta) => {
 				meta.onKeysUpdated(keys);
-			}
+			});
 		}
 		return node;
 	}
@@ -350,15 +349,15 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 	protected applyDeferredProperties(element: any, properties: VNodeProperties) {
 		const key = properties.key;
 		const deferredProperties = this._deferredProperties;
-		if (typeof key === 'string' && deferredProperties.has(key)) {
-			(deferredProperties.get(key) || []).forEach(({ object, propertyName, callback }) => {
+		if (key && typeof key === 'string' && deferredProperties[key]) {
+			for (const { object, propertyName, callback } of deferredProperties[key]) {
 				if (object === 'properties') {
 					element[propertyName] = callback.call(this);
 				}
 				if (object === 'styles') {
 					element.style[propertyName] = callback.call(this);
 				}
-			});
+			}
 		}
 	}
 
@@ -791,8 +790,8 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 				}
 			} = node;
 
-			if (typeof key === 'string') {
-				const deferredProperties = this._deferredProperties.get(key) || [];
+			if (key && typeof key === 'string') {
+				const deferredProperties = this._deferredProperties[key] || [];
 				[ 'scrollTop' ].forEach(propertyName => {
 					const callback = properties[propertyName];
 					if (typeof callback === 'function') {
@@ -815,7 +814,7 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 						delete styles[propertyName];
 					}
 				});
-				this._deferredProperties.set(key, deferredProperties);
+				this._deferredProperties[key] = deferredProperties;
 			}
 		}
 	}

@@ -2,10 +2,10 @@ import global from '@dojo/core/global';
 import { from } from '@dojo/shim/array';
 import Set from '@dojo/shim/Set';
 import WeakMap from '@dojo/shim/WeakMap';
-import MetaBase from '../meta/Base';
+import { WidgetMetaOptions } from '../interfaces';
+import SubscribableBase from '../meta/SubscribableBase';
 
 import 'intersection-observer';
-import { WidgetMetaOptions } from '../interfaces';
 
 interface IntersectionDetail {
 	entries: WeakMap<Element, IntersectionObserverEntry>;
@@ -25,7 +25,7 @@ export interface IntersectionMetaOptions extends WidgetMetaOptions {
 	thresholds?: number[];
 }
 
-export class Intersection extends MetaBase<number, IntersectionMetaOptions> {
+export class Intersection extends SubscribableBase<number, IntersectionMetaOptions> {
 	private _details: IntersectionDetail;
 
 	private _getDetails(): IntersectionDetail {
