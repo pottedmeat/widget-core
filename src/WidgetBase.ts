@@ -174,7 +174,7 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 
 	private _nodeMap = new Map<string, HTMLElement>();
 
-	private _requiredNodes = new Map<string, (WidgetMetaRequiredNodeCallback | undefined)[]>();
+	private _requiredNodes = new Map<string, WidgetMetaRequiredNodeCallback[]>();
 
 	private _boundRenderFunc: Render;
 
@@ -246,6 +246,7 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 		properties: VNodeProperties
 	): void {
 		this._setNode(element, properties);
+		this.applyAfterProperties(element, properties);
 		this.onElementCreated(element, String(properties.key));
 	}
 
@@ -259,7 +260,31 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 		properties: VNodeProperties
 	): void {
 		this._setNode(element, properties);
+		this.applyAfterProperties(element, properties);
 		this.onElementUpdated(element, String(properties.key));
+	}
+
+	protected applyAfterProperties(element: any, properties: any, parent?: string) {
+		const after = parent ? properties.after[parent] : properties.after;
+		if (after) {
+			for (const propertyName of Object.keys(after)) {
+				const callback = after[propertyName];
+				if (typeof callback === 'function') {
+					if (parent) {
+						element[parent][propertyName] = callback.call(this, element);
+					}
+					else {
+						element[propertyName] = callback.call(this, element);
+					}
+				}
+				else if (parent) {
+					throw new Error('after properties only support one level of depth');
+				}
+				else {
+					this.applyAfterProperties(element, properties, propertyName);
+				}
+			}
+		}
 	}
 
 	/**
@@ -286,24 +311,13 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 
 	private _setNode(element: Element, properties: VNodeProperties): void {
 		const key = String(properties.key);
+		this._nodeMap.set(key, <HTMLElement> element);
 		const callbacks = this._requiredNodes.get(key);
 		if (callbacks) {
-			let all = true;
 			for (const callback of callbacks) {
-				if (callback) {
-					callback.call(this, element);
-				}
-				else {
-					all = false;
-				}
-			}
-			if (all) {
-				// if all required nodes are callbacks,
-				// exclude this key from validation
-				this._requiredNodes.delete(key);
+				callback && callback.call(this, element);
 			}
 		}
-		this._nodeMap.set(key, <HTMLElement> element);
 	}
 
 	public get properties(): Readonly<P> & Readonly<WidgetProperties> {
