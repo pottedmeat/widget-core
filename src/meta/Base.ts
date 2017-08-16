@@ -42,9 +42,10 @@ export class Base {
 		}
 		let wrapper = callback;
 		if (callback && keys.length > 1) {
-			let called = false;
+			let once = false;
 			wrapper = () => {
-				if (!called) {
+				/* istanbul ignore else: only run once */
+				if (!once) {
 					const found: HTMLElement[] = [];
 					for (const key of keys) {
 						const node = this.nodes.get(key);
@@ -56,7 +57,7 @@ export class Base {
 						}
 					}
 					if (keys.length === found.length) {
-						called = true;
+						once = true;
 						callback && callback.apply(this, found);
 					}
 				}
