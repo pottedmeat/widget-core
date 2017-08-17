@@ -9,7 +9,7 @@ import 'intersection-observer';
 interface IntersectionDetail {
 	entries: WeakMap<Element, IntersectionObserverEntry>;
 	keys: string[];
-	intersections: { [key: string]: number }; // previous intersections
+	intersections: { [key: string]: IntersectionResult }; // previous intersections
 	intersectionObserver?: IntersectionObserver; // attached observer
 	root: string;
 	rootMargin: string | undefined;
@@ -25,7 +25,17 @@ export interface IntersectionGetOptions {
 	thresholds?: number[];
 }
 
-export class Intersection extends Base<number, IntersectionGetOptions> {
+export interface IntersectionResult {
+	intersectionRatio: number;
+	isIntersecting: boolean;
+}
+
+const defaultIntersection: IntersectionResult = Object.freeze({
+	intersectionRatio: 0,
+	isIntersecting: false
+});
+
+export class Intersection extends Base<IntersectionResult, IntersectionGetOptions> {
 	private _details: IntersectionDetail[] = [];
 
 	private _getDetails(options: IntersectionGetOptions): IntersectionDetail {
@@ -91,9 +101,11 @@ export class Intersection extends Base<number, IntersectionGetOptions> {
 		} = details;
 
 		const intersectionOptions: IntersectionObserverInit = {
-			rootMargin,
-			threshold: thresholds.length ? thresholds : 0.000001
+			rootMargin
 		};
+		if (thresholds.length) {
+			intersectionOptions.threshold = thresholds;
+		}
 		if (rootNode) {
 			intersectionOptions.root = rootNode;
 		}
@@ -110,13 +122,6 @@ export class Intersection extends Base<number, IntersectionGetOptions> {
 		}
 	}
 
-	/*
-	private _unobserve(rootNode: HTMLElement | undefined, node: HTMLElement, details: IntersectionDetail): void {
-		const intersectionObserver = this._getIntersectionObserver(details, rootNode);
-		intersectionObserver.unobserve(node);
-	}
-	*/
-
 	private _onIntersect(details: IntersectionDetail, intersectionObserverEntries: IntersectionObserverEntry[]) {
 		const lookup = new WeakMap<Element, string>();
 		for (const key of details.keys) {
@@ -127,11 +132,17 @@ export class Intersection extends Base<number, IntersectionGetOptions> {
 		}
 		const keys: string[] = [];
 		for (const intersectionEntry of intersectionObserverEntries) {
+			const {
+				intersectionRatio
+			} = intersectionEntry;
 			details.entries.set(intersectionEntry.target, intersectionEntry);
 			if (lookup.has(intersectionEntry.target)) {
 				const key = lookup.get(intersectionEntry.target);
 				if (key) {
-					details.intersections[key] = intersectionEntry.intersectionRatio;
+					details.intersections[key] = {
+						intersectionRatio,
+						isIntersecting: (intersectionRatio > 0) // TODO: Use from the entry once it's updated in the interface
+					};
 					keys.push(key);
 				}
 			}
@@ -153,12 +164,12 @@ export class Intersection extends Base<number, IntersectionGetOptions> {
 		});
 	}
 
-	public get(key: string, options: IntersectionGetOptions = {}): number {
+	public get(key: string, options: IntersectionGetOptions = {}): IntersectionResult {
 		if (this.has(key, options)) {
 			return this._getDetails(options).intersections[key];
 		}
 		this.track(key, options);
-		return 0;
+		return defaultIntersection;
 	}
 
 	public has(key: string, options: IntersectionGetOptions = {}): boolean {
