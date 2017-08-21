@@ -372,7 +372,7 @@ export interface WidgetMetaProperties {
 	/**
 	 * Sparse array with one item for each requireNode call
 	 */
-	requiredNodes: Map<string, (WidgetMetaRequiredNodeCallback | undefined)[]>;
+	requiredNodes: Map<string, WidgetMetaRequiredNodeCallback[]>;
 	invalidate: () => void;
 }
 

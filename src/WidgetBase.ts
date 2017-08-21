@@ -174,7 +174,7 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 
 	private _nodeMap = new Map<string, HTMLElement>();
 
-	private _requiredNodes = new Map<string, (WidgetMetaRequiredNodeCallback | undefined)[]>();
+	private _requiredNodes = new Map<string, WidgetMetaRequiredNodeCallback[]>();
 
 	private _boundRenderFunc: Render;
 
@@ -288,19 +288,8 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 		const key = String(properties.key);
 		const callbacks = this._requiredNodes.get(key);
 		if (callbacks) {
-			let all = true;
 			for (const callback of callbacks) {
-				if (callback) {
-					callback.call(this, element);
-				}
-				else {
-					all = false;
-				}
-			}
-			if (all) {
-				// if all required nodes are callbacks,
-				// exclude this key from validation
-				this._requiredNodes.delete(key);
+				callback.call(this, element);
 			}
 		}
 		this._nodeMap.set(key, <HTMLElement> element);

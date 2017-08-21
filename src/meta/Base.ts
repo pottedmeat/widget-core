@@ -5,7 +5,7 @@ import { WidgetMetaProperties, WidgetMetaRequiredNodeCallback } from '../interfa
 export class Base {
 	private _invalidate: () => void;
 	private _invalidating: number;
-	private _requiredNodes: Map<string, (WidgetMetaRequiredNodeCallback | undefined)[]>;
+	private _requiredNodes: Map<string, WidgetMetaRequiredNodeCallback[]>;
 	protected nodes: Map<string, HTMLElement>;
 
 	constructor(properties: WidgetMetaProperties) {
@@ -31,7 +31,7 @@ export class Base {
 		}
 		else {
 			const callbacks = this._requiredNodes.get(key) || [];
-			callbacks.push(callback);
+			callback && callbacks.push(callback);
 			this._requiredNodes.set(key, callbacks);
 			if (!callback) {
 				this.invalidate();
