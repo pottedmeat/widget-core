@@ -5,7 +5,7 @@ import { WidgetMetaProperties, WidgetMetaRequiredNodeCallback } from '../interfa
 export class Base {
 	private _invalidate: () => void;
 	private _invalidating: number;
-	private _requiredNodes: Map<string, WidgetMetaRequiredNodeCallback[]>;
+	private _requiredNodes: Map<string, (WidgetMetaRequiredNodeCallback | undefined)[]>;
 	protected nodes: Map<string, HTMLElement>;
 
 	constructor(properties: WidgetMetaProperties) {
@@ -24,47 +24,14 @@ export class Base {
 		this._invalidating = global.requestAnimationFrame(this._invalidate);
 	}
 
-	protected requireNode(key: string | string[], callback?: WidgetMetaRequiredNodeCallback): void {
-		const keys = Array.isArray(key) ? key : [ key ];
-		const found: HTMLElement[] = [];
-		for (const key of keys) {
-			const node = this.nodes.get(key);
-			if (node) {
-				found.push(node);
-			}
-			else {
-				break;
-			}
+	protected requireNode(key: string, callback?: WidgetMetaRequiredNodeCallback): void {
+		const node = this.nodes.get(key);
+		if (node) {
+			callback && callback.call(this, node);
 		}
-		if (keys.length === found.length) {
-			callback && callback.apply(this, found);
-			return;
-		}
-		let wrapper = callback;
-		if (callback && keys.length > 1) {
-			let called = false;
-			wrapper = () => {
-				if (!called) {
-					const found: HTMLElement[] = [];
-					for (const key of keys) {
-						const node = this.nodes.get(key);
-						if (node) {
-							found.push(node);
-						}
-						else {
-							break;
-						}
-					}
-					if (keys.length === found.length) {
-						called = true;
-						callback && callback.apply(this, found);
-					}
-				}
-			};
-		}
-		for (const key of keys) {
+		else {
 			const callbacks = this._requiredNodes.get(key) || [];
-			wrapper && callbacks.push(wrapper);
+			callbacks.push(callback);
 			this._requiredNodes.set(key, callbacks);
 			if (!callback) {
 				this.invalidate();

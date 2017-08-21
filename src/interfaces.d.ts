@@ -372,7 +372,7 @@ export interface WidgetMetaProperties {
 	/**
 	 * Sparse array with one item for each requireNode call
 	 */
-	requiredNodes: Map<string, WidgetMetaRequiredNodeCallback[]>;
+	requiredNodes: Map<string, (WidgetMetaRequiredNodeCallback | undefined)[]>;
 	invalidate: () => void;
 }
 
@@ -380,7 +380,7 @@ export interface WidgetMetaProperties {
  * Callback when asking widget meta for a required node
  */
 export interface WidgetMetaRequiredNodeCallback {
-	(...node: HTMLElement[]): void;
+	(node: HTMLElement): void;
 }
 
 export interface Render {
