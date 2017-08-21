@@ -249,11 +249,11 @@ registerSuite({
 			render() {
 				renders++;
 
-				this.meta(TestMeta).get('parent');
+				this.meta(TestMeta).get('root');
 
 				return v('div', {
 					innerHTML: 'hello world',
-					key: 'parent'
+					key: 'root'
 				});
 			}
 		}
@@ -265,92 +265,6 @@ registerSuite({
 
 		assert.strictEqual(callbacks, 1, 'callback fired when node was missing');
 		assert.strictEqual(renders, 1, 'callback did not call invalidate and did not re-render');
-	},
-	'requireNode accepts multiple keys'() {
-		let callbacks = 0;
-		let nodes = false;
-
-		class TestMeta extends MetaBase {
-			get(child: string, parent: string) {
-				this.requireNode([ child, parent ], (child, parent) => {
-					nodes = (child && child.tagName === 'SPAN' && parent && parent.tagName === 'DIV');
-					callbacks++;
-				});
-			}
-		}
-
-		let renders = 0;
-
-		class TestWidget extends ProjectorMixin(TestWidgetBase) {
-			nodes: any;
-
-			render() {
-				renders++;
-
-				this.meta(TestMeta).get('child', 'parent');
-
-				return v('div', {
-					key: 'parent'
-				}, [
-					v('span', {
-						innerHTML: 'hello world',
-						key: 'child'
-					})
-				]);
-			}
-		}
-
-		const div = document.createElement('div');
-
-		const widget = new TestWidget();
-		widget.append(div);
-
-		assert.strictEqual(callbacks, 1, 'callback fired when node was missing');
-		assert.strictEqual(renders, 1);
-		assert.isTrue(nodes, 'both nodes found');
-	},
-	'requireNode accepts multiple keys in any order'() {
-		let callbacks = 0;
-		let nodes = false;
-
-		class TestMeta extends MetaBase {
-			get(child: string, parent: string) {
-				this.requireNode([ parent, child ], (parent, child) => {
-					nodes = (child && child.tagName === 'SPAN' && parent && parent.tagName === 'DIV');
-					callbacks++;
-				});
-			}
-		}
-
-		let renders = 0;
-
-		class TestWidget extends ProjectorMixin(TestWidgetBase) {
-			nodes: any;
-
-			render() {
-				renders++;
-
-				this.meta(TestMeta).get('child', 'root');
-
-				return v('div', {
-					key: 'root'
-				}, [
-					v('span', {
-						innerHTML: 'hello world',
-						key: 'child'
-					})
-				]);
-			}
-		}
-
-		const div = document.createElement('div');
-
-		const widget = new TestWidget();
-		widget.append(div);
-
-		assert.strictEqual(callbacks, 1, 'callback fired when node was missing');
-		assert.strictEqual(renders, 1);
-		assert.isTrue(nodes, 'both nodes found');
 	},
 	'callback can invalidate'() {
 		let callbacks = 0;
