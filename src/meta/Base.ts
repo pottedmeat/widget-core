@@ -1,11 +1,13 @@
 import global from '@dojo/shim/global';
 import Map from '@dojo/shim/Map';
 import { WidgetMetaProperties, WidgetMetaRequiredNodeCallback } from '../interfaces';
+import { MetaTestCondition } from './interfaces';
 
-export class Base {
+export abstract class Base<T = any, O extends object = object> {
 	private _invalidate: () => void;
 	private _invalidating: number;
 	private _requiredNodes: Map<string, WidgetMetaRequiredNodeCallback[]>;
+	private _tests: { [key: string]: [ MetaTestCondition<T>, O | undefined, T ] } = {};
 	protected nodes: Map<string, HTMLElement>;
 
 	constructor(properties: WidgetMetaProperties) {
@@ -15,13 +17,26 @@ export class Base {
 		this.nodes = properties.nodes;
 	}
 
-	public has(key: string): boolean {
-		return this.nodes.has(key);
-	}
-
-	protected invalidate(): void {
-		global.cancelAnimationFrame(this._invalidating);
-		this._invalidating = global.requestAnimationFrame(this._invalidate);
+	protected invalidate(keys?: string[]): void {
+		const tests = this._tests;
+		let invalidate = true;
+		if (keys && keys.length) {
+			invalidate = false;
+			for (const key of keys) {
+				if (key in tests) {
+					const [ condition, options, previousValue ] = tests[key];
+					const value = this.get(key, options);
+					if (condition(previousValue, value, key)) {
+						invalidate = true;
+					}
+					tests[key][2] = value;
+				}
+			}
+		}
+		if (invalidate) {
+			global.cancelAnimationFrame(this._invalidating);
+			this._invalidating = global.requestAnimationFrame(this._invalidate);
+		}
 	}
 
 	protected requireNode(key: string | string[], callback?: WidgetMetaRequiredNodeCallback): void {
@@ -70,6 +85,16 @@ export class Base {
 				this.invalidate();
 			}
 		}
+	}
+
+	public abstract get(key: string, options?: O): Readonly<T>;
+
+	public has(key: string): boolean {
+		return this.nodes.has(key);
+	}
+
+	public test(key: string, condition: MetaTestCondition<T>, options?: O): void {
+		this._tests[key] = [ condition, options, this.get(key, options) ];
 	}
 }
 

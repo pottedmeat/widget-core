@@ -246,6 +246,7 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 		properties: VNodeProperties
 	): void {
 		this._setNode(element, properties);
+		this.applyAfterProperties(element, properties);
 		this.onElementCreated(element, String(properties.key));
 	}
 
@@ -259,7 +260,31 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 		properties: VNodeProperties
 	): void {
 		this._setNode(element, properties);
+		this.applyAfterProperties(element, properties);
 		this.onElementUpdated(element, String(properties.key));
+	}
+
+	protected applyAfterProperties(element: any, properties: any, parent?: string) {
+		const after = parent ? properties.after[parent] : properties.after;
+		if (after) {
+			for (const propertyName of Object.keys(after)) {
+				const callback = after[propertyName];
+				if (typeof callback === 'function') {
+					if (parent) {
+						element[parent][propertyName] = callback.call(this, element);
+					}
+					else {
+						element[propertyName] = callback.call(this, element);
+					}
+				}
+				else if (parent) {
+					throw new Error('after properties only support one level of depth');
+				}
+				else {
+					this.applyAfterProperties(element, properties, propertyName);
+				}
+			}
+		}
 	}
 
 	/**
@@ -290,7 +315,11 @@ export class WidgetBase<P = WidgetProperties, C extends DNode = DNode> extends E
 		const callbacks = this._requiredNodes.get(key);
 		if (callbacks) {
 			for (const callback of callbacks) {
+<<<<<<< HEAD
 				callback.call(this, element);
+=======
+				callback && callback.call(this, element);
+>>>>>>> 06431d85bc4ba0f5ffc342eadb18320fc687c90f
 			}
 		}
 	}
