@@ -5,21 +5,53 @@ import { Base } from './Base';
 interface IntersectionDetail {
 	entries: WeakMap<Element, IntersectionObserverEntry>;
 	intersectionObserver?: IntersectionObserver; // attached observer
+	/**
+	 * Passed options to allow search by reference
+	 */
 	options: IntersectionGetOptions;
-	root: string;
-	rootMargin: string | undefined;
-	thresholds: number[]; // thresholds the observe should be attached with
+	/**
+	 * Key the observer was created with – stored to allow search by reference
+	 */
+	root?: string;
+	/**
+	 * Root margin the observer was created with – stored to allow search by reference
+	 */
+	rootMargin?: string;
+	/**
+	 * Thresholds the observer was created with – stored to allow search by reference
+	 */
+	thresholds: number[]; // thresholds the observer should be attached with
 }
 
 export interface IntersectionGetOptions {
+	/**
+	 * Ancestor to use as the boundaries for the target element being observed.
+	 * The top-level document viewport is used otherwise.
+	 */
 	root?: string;
+	/**
+	 * An offset rectangle (in CSS margin syntax) applied to the root's bounding box
+	 * to grow (or shrink if negative) the boundaries used to detect intersections.
+	 */
 	rootMargin?: string;
-	threshold?: number;
+	/**
+	 * An array of numbers between 0.0 and 1.0 specifying the intersection ratios
+	 * which should be used to raise an intersection event. If no values are passed,
+	 * events are only raised when moving from visible to not visible and from
+	 * not visible to visible.
+	 *
+	 */
 	thresholds?: number[];
 }
 
 export interface IntersectionResult {
+	/**
+	 * How much of the target element is visible within its root rectangle
+	 */
 	intersectionRatio: number;
+	/**
+	 * Whether the target element is visible
+	 */
 	isIntersecting: boolean;
 }
 
@@ -32,18 +64,14 @@ export class Intersection extends Base {
 	private _details: IntersectionDetail[] = [];
 
 	private _getDetails(options: IntersectionGetOptions): IntersectionDetail {
-		let {
-			root = '',
+		const {
+			root,
 			rootMargin,
-			threshold,
 			thresholds = []
 		} = options;
 		const {
 			_details: details
 		} = this;
-		if (typeof threshold === 'number' && !thresholds.length) {
-			thresholds = [ threshold ];
-		}
 
 		// Look to see if a detail record has already been created for these options
 		let cached: IntersectionDetail | undefined = undefined;
@@ -54,8 +82,8 @@ export class Intersection extends Base {
 					root === detail.root &&
 					rootMargin === detail.rootMargin &&
 					thresholds.length === detail.thresholds.length &&
-					thresholds.every(function(i) {
-						return thresholds[i] === detail.thresholds[i];
+					thresholds.every(function(threshold, i) {
+						return threshold === detail.thresholds[i];
 					})
 				)
 			) {
@@ -82,7 +110,7 @@ export class Intersection extends Base {
 		}
 
 		const {
-			rootMargin = '0px',
+			rootMargin,
 			thresholds
 		} = details;
 
@@ -115,17 +143,18 @@ export class Intersection extends Base {
 
 	public get(key: string, options: IntersectionGetOptions = {}): IntersectionResult {
 		const details = this._getDetails(options);
-		if (details.root) {
+		const root = details.root;
+		if (root) {
 			let rootNode: HTMLElement;
 			let node: HTMLElement;
 			const all = () => {
-				rootNode = this.nodes.get(details.root) || rootNode;
+				rootNode = this.nodes.get(root) || rootNode;
 				node = this.nodes.get(key) || node;
 				if (rootNode && node) {
 					this._getIntersectionObserver(details, rootNode).observe(node);
 				}
 			};
-			this.requireNode(details.root, all);
+			this.requireNode(root, all);
 			this.requireNode(key, all);
 		}
 		else {
