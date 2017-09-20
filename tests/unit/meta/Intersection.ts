@@ -5,7 +5,7 @@ import { stub } from 'sinon';
 import { v } from '../../../src/d';
 import { ProjectorMixin } from '../../../src/main';
 import { WidgetProperties } from '../../../src/interfaces';
-import Intersection from '../../../src/meta/Intersection';
+import Intersection, { IntersectionGetOptions } from '../../../src/meta/Intersection';
 import { WidgetBase } from '../../../src/WidgetBase';
 
 let intersectionObserver: any;
@@ -131,7 +131,7 @@ registerSuite({
 		class TestWidget extends ProjectorMixin(WidgetBase)<WidgetProperties> {
 			render() {
 				this.meta(Intersection).get('test', {
-					threshold: 0,
+					thresholds: [ 0 ],
 					root: 'root'
 				});
 
@@ -208,5 +208,71 @@ registerSuite({
 
 		assert.equal(renders, 2);
 		assert.isTrue(widget.has('root'));
+	},
+
+	'only a single observer is created for the same set of options'() {
+		class TestWidget extends ProjectorMixin(WidgetBase)<WidgetProperties> {
+			addOptions(options?: IntersectionGetOptions) {
+				this.meta(Intersection).get('child', options);
+			}
+
+			getObserverCount(): number {
+				return (<any> this.meta(Intersection))._details.length;
+			}
+
+			render() {
+				return v('div', {
+					key: 'parent'
+				}, [
+					v('div', { key: 'child '})
+				]);
+			}
+		}
+
+		const div = document.createElement('div');
+
+		document.body.appendChild(div);
+
+		const widget = new TestWidget();
+
+		widget.append(div);
+
+		widget.addOptions();
+		widget.addOptions({
+			root: 'parent',
+			rootMargin: '0px',
+			thresholds: [ 0, 0.3, 0.6 ]
+		});
+		widget.addOptions({
+			root: 'parent',
+			rootMargin: '0px',
+			thresholds: [ 0, 0.5, 0.75 ]
+		});
+		widget.addOptions({
+			thresholds: [ 0.5 ]
+		});
+
+		resolveRAF();
+
+		assert.equal(widget.getObserverCount(), 4);
+
+		widget.addOptions();
+		widget.addOptions({
+			root: 'parent',
+			rootMargin: '0px',
+			thresholds: [ 0, 0.3, 0.6 ]
+		});
+		widget.addOptions({
+			root: 'parent',
+			rootMargin: '0px',
+			thresholds: [ 0, 0.5, 0.75 ]
+		});
+		widget.addOptions({
+			thresholds: [ 0.5 ]
+		});
+
+		resolveRAF();
+
+		assert.equal(widget.getObserverCount(), 4);
 	}
 });
