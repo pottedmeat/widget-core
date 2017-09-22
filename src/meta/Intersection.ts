@@ -6,10 +6,6 @@ interface IntersectionDetail {
 	entries: WeakMap<Element, IntersectionObserverEntry>;
 	intersectionObserver?: IntersectionObserver; // attached observer
 	/**
-	 * Passed options to allow search by reference
-	 */
-	options: IntersectionGetOptions;
-	/**
 	 * Key the observer was created with – stored to allow search by reference
 	 */
 	root?: string;
@@ -20,7 +16,7 @@ interface IntersectionDetail {
 	/**
 	 * Thresholds the observer was created with – stored to allow search by reference
 	 */
-	thresholds: number[]; // thresholds the observer should be attached with
+	thresholds?: number[]; // thresholds the observer should be attached with
 }
 
 export interface IntersectionGetOptions {
@@ -60,46 +56,26 @@ const defaultIntersection: IntersectionResult = Object.freeze({
 	isIntersecting: false
 });
 
+function stringify(options: IntersectionGetOptions): string {
+	const {
+		root = '',
+		rootMargin = '',
+		thresholds = []
+	} = options;
+	return JSON.stringify([root, rootMargin, thresholds]);
+}
+
 export class Intersection extends Base {
-	private _details: IntersectionDetail[] = [];
+	private _details: { [cacheKey: string]: IntersectionDetail } = {};
 
 	private _getDetails(options: IntersectionGetOptions): IntersectionDetail {
-		const {
-			root,
-			rootMargin,
-			thresholds = []
-		} = options;
-		const {
-			_details: details
-		} = this;
-
 		// Look to see if a detail record has already been created for these options
-		let cached: IntersectionDetail | undefined = undefined;
-		for (const detail of details) {
-			if (
-				options === detail.options ||
-				(
-					root === detail.root &&
-					rootMargin === detail.rootMargin &&
-					thresholds.length === detail.thresholds.length &&
-					thresholds.every(function(threshold, i) {
-						return threshold === detail.thresholds[i];
-					})
-				)
-			) {
-				cached = detail;
-				break;
-			}
-		}
+		const cacheKey = stringify(options);
+		let cached = this._details[cacheKey];
 		if (!cached) {
-			cached = {
-				entries: new WeakMap<Element, IntersectionObserverEntry>(),
-				options,
-				root,
-				rootMargin,
-				thresholds
-			};
-			details.push(cached);
+			const entries = new WeakMap<Element, IntersectionObserverEntry>();
+			cached = { ...options, entries };
+			this._details[cacheKey] = cached;
 		}
 		return cached;
 	}
@@ -117,7 +93,7 @@ export class Intersection extends Base {
 		const intersectionOptions: IntersectionObserverInit = {
 			rootMargin
 		};
-		if (thresholds.length) {
+		if (thresholds && thresholds.length) {
 			intersectionOptions.threshold = thresholds;
 		}
 		if (rootNode) {
@@ -148,22 +124,30 @@ export class Intersection extends Base {
 			let rootNode: HTMLElement;
 			let node: HTMLElement;
 			const all = () => {
-				rootNode = this.nodes.get(root) || rootNode;
-				node = this.nodes.get(key) || node;
+				rootNode = this.nodeHandler.get(root) || rootNode;
+				node = this.nodeHandler.get(key) || node;
 				if (rootNode && node) {
 					this._getIntersectionObserver(details, rootNode).observe(node);
 				}
 			};
-			this.requireNode(root, all);
-			this.requireNode(key, all);
+			const rootHandle = this.nodeHandler.on(String(root), function () {
+				all();
+				rootHandle.destroy();
+			});
+			const handle = this.nodeHandler.on(String(key), function () {
+				all();
+				handle.destroy();
+			});
 		}
 		else {
-			this.requireNode(key, (node) => {
-				this._getIntersectionObserver(details).observe(node);
+			const handle = this.nodeHandler.on(String(key), () => {
+				const node = this.nodeHandler.get(key);
+				node && this._getIntersectionObserver(details).observe(node);
+				handle.destroy();
 			});
 		}
 
-		const node = this.nodes.get(key);
+		const node = this.nodeHandler.get(key);
 		if (details && node) {
 			const entry = details.entries.get(node);
 			/* istanbul ignore else: only process entry if it exists */
@@ -183,7 +167,7 @@ export class Intersection extends Base {
 	}
 
 	public has(key: string, options: IntersectionGetOptions = {}): boolean {
-		const node = this.nodes.get(key);
+		const node = this.nodeHandler.get(key);
 		/* istanbul ignore else: only check for true if node exists */
 		if (node) {
 			const details = this._getDetails(options);

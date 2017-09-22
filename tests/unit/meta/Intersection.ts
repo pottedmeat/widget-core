@@ -61,7 +61,7 @@ registerSuite({
 
 		resolveRAF();
 
-		const node = (<any> widget)._nodeMap.get('root');
+		const node = (<any> widget)._nodeHandler.get('root');
 
 		assert.isNotNull(node);
 
@@ -110,7 +110,7 @@ registerSuite({
 
 		resolveRAF();
 
-		const node = (<any> widget)._nodeMap.get('root');
+		const node = (<any> widget)._nodeHandler.get('root');
 
 		assert.isNotNull(node);
 
@@ -156,7 +156,7 @@ registerSuite({
 
 		resolveRAF();
 
-		const root = (<any> widget)._nodeMap.get('root');
+		const root = (<any> widget)._nodeHandler.get('root');
 
 		assert.isTrue(intersectionObserver.called);
 		assert.strictEqual(intersectionObserver.args[0][1].root, root);
@@ -194,7 +194,7 @@ registerSuite({
 		assert.equal(renders, 1);
 		assert.isFalse(widget.has('root'));
 
-		const node = (<any> widget)._nodeMap.get('root');
+		const node = (<any> widget)._nodeHandler.get('root');
 
 		const [ observer, callback ] = observers[0];
 
@@ -217,7 +217,7 @@ registerSuite({
 			}
 
 			getObserverCount(): number {
-				return (<any> this.meta(Intersection))._details.length;
+				return Object.keys((<any> this.meta(Intersection))._details).length;
 			}
 
 			render() {
