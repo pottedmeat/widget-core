@@ -1,7 +1,15 @@
 import { assign } from '@dojo/core/lang';
 import { from as arrayFrom } from '@dojo/shim/array';
 import global from '@dojo/shim/global';
-import { Constructor, DNode, HNode, VirtualDomProperties, WidgetProperties } from './interfaces';
+import {
+	Constructor,
+	DNode,
+	HNode,
+	VirtualDomProperties,
+	WidgetBaseInterface,
+	WidgetProperties,
+	WNode
+} from './interfaces';
 import { WidgetBase } from './WidgetBase';
 import { v, w } from './d';
 import { DomWrapper } from './util/DomWrapper';
@@ -155,10 +163,16 @@ export function DomToWidgetWrapper(domNode: CustomElement): DomToWidgetWrapper {
 
 		constructor() {
 			super();
-			domNode.addEventListener('connected', () => {
+			if (domNode.getWidgetInstance) {
 				this._widgetInstance = domNode.getWidgetInstance();
 				this.invalidate();
-			});
+			}
+			else {
+				domNode.addEventListener('connected', () => {
+					this._widgetInstance = domNode.getWidgetInstance();
+					this.invalidate();
+				});
+			}
 		}
 
 		public __render__(): HNode {
@@ -178,6 +192,37 @@ export function DomToWidgetWrapper(domNode: CustomElement): DomToWidgetWrapper {
 			return v(domNode.tagName, {});
 		}
 	};
+}
+
+export class WNodeWrapper implements WNode {
+	public widgetConstructor: DomToWidgetWrapper;
+	public type: symbol;
+
+	private _wNode: WNode<WidgetBaseInterface<DomToWidgetWrapperProperties>>;
+	private _widgetInstance: ProjectorMixin<any>;
+
+	constructor(domNode: CustomElement, properties: WidgetProperties) {
+		this.widgetConstructor = DomToWidgetWrapper(domNode);
+		this._wNode = w(this.widgetConstructor, properties);
+		this.type = this._wNode.type;
+
+		if (domNode.getWidgetInstance) {
+			this._widgetInstance = domNode.getWidgetInstance();
+		}
+		else {
+			domNode.addEventListener('connected', () => {
+				this._widgetInstance = domNode.getWidgetInstance();
+			});
+		}
+	}
+
+	public get children() {
+		return this._widgetInstance ? (<any> this._widgetInstance).children : [];
+	}
+
+	public get properties() {
+		return this._widgetInstance ? (<any> this._widgetInstance).properties : this._wNode.properties;
+	}
 }
 
 function getWidgetPropertyFromAttribute(attributeName: string, attributeValue: string | null, descriptor: CustomElementAttributeDescriptor): [ string, any ] {
@@ -303,7 +348,7 @@ export function initializeElement(element: CustomElement) {
 		elementChildren.forEach((childNode: CustomElement, index: number) => {
 			const properties = { key: `child-${index}` };
 			if (childrenType === ChildrenType.DOJO) {
-				children.push(w(DomToWidgetWrapper(childNode), properties));
+				children.push(new WNodeWrapper(childNode, properties));
 			}
 			else {
 				children.push(w(DomWrapper(childNode), properties));
